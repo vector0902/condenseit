@@ -106,12 +106,11 @@ def _clean_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def create_app(config_path: str | None = None) -> FastAPI:
-    # Ensure condenseit.* loggers are visible at INFO when started via uvicorn
-    # directly (e.g. systemd). The CLI calls basicConfig(INFO) itself; this is
-    # a no-op there because the condenseit logger would already propagate to the
-    # INFO-level root logger. Without this, _ListHandler in DigestJobManager
-    # captures nothing and /admin/logs stays empty.
-    logging.getLogger("condenseit").setLevel(logging.INFO)
+    # Allow overriding condenseit logger level via CONDENSEIT_LOG_LEVEL env var.
+    # Defaults to INFO when not set, matching the previous hardcoded behavior.
+    _log_level_str = os.getenv("CONDENSEIT_LOG_LEVEL", "INFO").upper()
+    _log_level = getattr(logging, _log_level_str, logging.INFO)
+    logging.getLogger("condenseit").setLevel(_log_level)
 
     config = load_config(config_path)
     store = ContentStore()

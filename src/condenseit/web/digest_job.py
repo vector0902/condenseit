@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class _ListHandler(logging.Handler):
-    """Captures log records emitted during a digest run into a list."""
+    """Captures log records emitted during a digest run into a list and stderr."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -20,10 +20,16 @@ class _ListHandler(logging.Handler):
         self.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         )
+        # Also write to stderr so docker logs shows real-time progress
+        import sys
+        self._stderr = logging.StreamHandler(sys.stderr)
+        self._stderr.setFormatter(self.formatter)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            self._lines.append(self.format(record))
+            msg = self.format(record)
+            self._lines.append(msg)
+            self._stderr.emit(record)
         except Exception as exc:
             logger.debug("Log record formatting failed: %s", exc)
 

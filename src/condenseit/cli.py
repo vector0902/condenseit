@@ -1,6 +1,7 @@
 """CondenseIt command-line interface."""
 
 import logging
+import os
 
 import click
 from rich.console import Console
@@ -85,7 +86,16 @@ def serve(port: int, host: str, config: str | None) -> None:
     app = create_app(config)
     console.print(f"[bold]CondenseIt[/] http://{host}:{port}/")
     console.print(f"  Admin: http://{host}:{port}/admin/")
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", "info").lower()
+    # Ensure the root logger also allows this level (uvicorn defaults to WARNING).
+    logging.getLogger().setLevel(getattr(logging, uvicorn_log_level.upper(), logging.INFO))
+    # Add a console handler if none exists so condenseit.* debug logs are visible.
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=getattr(logging, uvicorn_log_level.upper(), logging.INFO),
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
+    uvicorn.run(app, host=host, port=port, log_level=uvicorn_log_level)
 
 
 @cli.command()
