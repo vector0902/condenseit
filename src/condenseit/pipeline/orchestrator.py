@@ -197,8 +197,10 @@ class DigestPipeline:
         podcasts = self.sources.podcast_sources_for_config()
 
         rss = RSSCollector(feeds)
+        total_feeds = len(feeds)
+        logger.info("Collecting RSS feeds (%d total)", total_feeds)
         articles: list[dict[str, Any]] = []
-        for _feed, items, err in rss.collect_feed_results():
+        for _feed, items, err in rss.collect_feed_results(total=total_feeds):
             articles.extend(
                 _apply_source_rules(
                     [a.to_dict() for a in items],
@@ -221,13 +223,22 @@ class DigestPipeline:
             openrouter_api_key=self._or_key,
             budget=self._ai_budget,
         )
+        total_yt = len(youtube)
+        if total_yt:
+            logger.info("Collecting YouTube channels (%d total)", total_yt)
         videos, yt_health = yt.collect_new_videos_with_health()
         self._record_health(yt_health)
 
+        watch_count = len(watch)
+        if watch_count:
+            logger.info("Checking website changes (%d URLs)", watch_count)
         changes, web_health = check_website_changes_with_health(watch, self.store)
         self._record_health(web_health)
 
-        for cfg in gnews:
+        total_gnews = len(gnews)
+        if total_gnews:
+            logger.info("Collecting Google News sources (%d total)", total_gnews)
+        for idx, cfg in enumerate(gnews, start=1):
             src_articles, src_health = GoogleNewsCollector(
                 [cfg],
             ).collect_all_with_health()
@@ -241,7 +252,10 @@ class DigestPipeline:
             )
             self._record_health(src_health)
 
-        for cfg in hackernews:
+        total_hn = len(hackernews)
+        if total_hn:
+            logger.info("Collecting Hacker News sources (%d total)", total_hn)
+        for idx, cfg in enumerate(hackernews, start=1):
             src_articles, src_health = HackerNewsCollector(
                 [cfg],
             ).collect_all_with_health()
@@ -255,7 +269,10 @@ class DigestPipeline:
             )
             self._record_health(src_health)
 
-        for cfg in reddit:
+        total_reddit = len(reddit)
+        if total_reddit:
+            logger.info("Collecting Reddit sources (%d total)", total_reddit)
+        for idx, cfg in enumerate(reddit, start=1):
             src_articles, src_health = RedditCollector(
                 [cfg],
             ).collect_all_with_health()
@@ -269,7 +286,10 @@ class DigestPipeline:
             )
             self._record_health(src_health)
 
-        for cfg in github_releases:
+        total_github = len(github_releases)
+        if total_github:
+            logger.info("Collecting GitHub Releases sources (%d total)", total_github)
+        for idx, cfg in enumerate(github_releases, start=1):
             src_articles, src_health = GitHubReleasesCollector(
                 [cfg],
             ).collect_all_with_health()
@@ -283,7 +303,10 @@ class DigestPipeline:
             )
             self._record_health(src_health)
 
-        for cfg in podcasts:
+        total_podcasts = len(podcasts)
+        if total_podcasts:
+            logger.info("Collecting Podcast sources (%d total)", total_podcasts)
+        for idx, cfg in enumerate(podcasts, start=1):
             src_articles, src_health = PodcastCollector(
                 [cfg],
             ).collect_all_with_health()
@@ -297,6 +320,7 @@ class DigestPipeline:
             )
             self._record_health(src_health)
 
+        logger.info("Collected %d articles from all sources", len(articles))
         articles.extend(v.to_dict() for v in videos)
 
         # Persist new articles and identify the truly fresh subset.

@@ -116,14 +116,16 @@ class YouTubeCollector:
 
     def collect_new_videos_with_health(
         self,
+        total: int = 0,
     ) -> tuple[list[VideoItem], list[tuple[str, str | None, int]]]:
         """Return ``(videos, [(rss_url, error_or_none, new_video_count), ...])``."""
         videos: list[VideoItem] = []
         health: list[tuple[str, str | None, int]] = []
-        for ch in self.channels:
+        for idx, ch in enumerate(self.channels, start=1):
             if not ch.channel_id:
                 continue
             rss_url = youtube_channel_feed_url(ch.channel_id)
+            logger.info("YouTube %d/%d: %s", idx, total, rss_url)
             ch_videos, entry = collect_with_health(
                 rss_url,
                 lambda ch=ch: self._collect_channel(ch),

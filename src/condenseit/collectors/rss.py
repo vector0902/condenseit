@@ -78,10 +78,12 @@ class RSSCollector:
 
     def collect_feed_results(
         self,
+        total: int = 0,
     ) -> list[tuple[FeedConfig, list[CollectedArticle], str | None]]:
         """Per-feed collection; ``error`` is None on success."""
         out: list[tuple[FeedConfig, list[CollectedArticle], str | None]] = []
-        for feed in self.feeds:
+        for idx, feed in enumerate(self.feeds, start=1):
+            logger.info("Feed %d/%d: %s", idx, total, feed.url)
             items, (_url, error, _count) = collect_with_health(
                 feed.url,
                 lambda feed=feed: self._collect_feed(feed),
