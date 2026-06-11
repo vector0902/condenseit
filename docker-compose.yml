@@ -10,7 +10,8 @@ services:
     ports:
       - "8899:8899"
     env_file:
-      - .env
+      # - .env
+      - ../condenseit_data/.env
     environment:
       CONDENSEIT_CONFIG: /app/config.yaml
       CONDENSEIT_DATA_DIR: /app/data
@@ -19,6 +20,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
-      - ./data:/app/data
+      # - ./config.yaml:/app/config.yaml:ro
+      # - ./data:/app/data
+      - ../condenseit_data/config.yaml:/app/config.yaml:ro
+      - ../condenseit_data/data:/app/data
     command: ["condenseit", "serve", "--host", "0.0.0.0", "--port", "8899"]
+
