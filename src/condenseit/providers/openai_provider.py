@@ -15,6 +15,7 @@ from condenseit.providers.base import (
     parse_summary_response,
     resolve_digest_language,
 )
+from condenseit.providers.shared_utils import log_llm_message
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class OpenAISummarizer(SummarizerProvider):
     def _chat(
         self,
         messages: list[dict[str, str]],
-        max_tokens: int = 1400,
+        max_tokens: int = 4096,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
         payload: dict[str, Any] = {
@@ -64,6 +65,11 @@ class OpenAISummarizer(SummarizerProvider):
         headers: dict[str, str] = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # Log prompt for debugging
+        conv_id = f"openai:{self.model}:{url}"
+        for msg in messages:
+            log_llm_message(conv_id, msg["role"], msg.get("content", ""))
 
         resp: httpx.Response | None = None
         with httpx.Client(timeout=120.0) as client:
@@ -88,13 +94,18 @@ class OpenAISummarizer(SummarizerProvider):
         if not choices:
             return ""
         choice = choices[0]
+        raw_response = str(choice["message"]["content"]).strip()
+        
+        # Log response for debugging
+        log_llm_message(conv_id, "RESPONSE", raw_response)
+        
         if choice.get("finish_reason") == "length":
             logger.warning(
                 "OpenAI-compat response truncated (finish_reason=length) for model=%s; "
                 "consider raising max_tokens",
                 self.model,
             )
-        return str(choice["message"]["content"]).strip()
+        return raw_response
 
     def summarize_article(
         self,

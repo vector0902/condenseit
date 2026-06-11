@@ -12,6 +12,7 @@ from condenseit.providers.base import (
     parse_summary_response,
     resolve_digest_language,
 )
+from condenseit.providers.shared_utils import log_llm_message
 
 logger = logging.getLogger(__name__)
 
@@ -84,19 +85,25 @@ class OllamaSummarizer(SummarizerProvider):
             self.max_summary_paragraphs,
             language=language,
         )
+        conv_id = f"{title[:30]}...{len(content)}ch"
+        log_llm_message(conv_id, "PROMPT", prompt)
+        
         response = self.client.generate(
             model=self.model,
             prompt=prompt,
             think=False,
-            options={"temperature": 0.3, "num_predict": 1400},
+            options={"temperature": 0.3, "num_predict": 4096},
         )
+        raw_response = response.get("response", "")
+        log_llm_message(conv_id, "RESPONSE", raw_response)
+        
         if response.get("done_reason") == "length":
             logger.warning(
                 "Ollama response truncated (done_reason=length) for model=%s; "
                 "consider raising num_predict",
                 self.model,
             )
-        return parse_summary_response(response["response"])
+        return parse_summary_response(raw_response)
 
     def generate_digest(
         self,
