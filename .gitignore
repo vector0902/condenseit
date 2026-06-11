@@ -56,3 +56,5 @@ logs/
 # Cursor
 .cursor/
 .cursorignore
+
+out.sh
