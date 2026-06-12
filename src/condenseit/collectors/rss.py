@@ -151,16 +151,70 @@ class RSSCollector:
             raise original_exc from exc
         return body.decode(encoding, errors="replace")
 
+    # Minimum character threshold for RSS embed content to be considered
+    # "full-text". Feeds like wechat2rss already embed full articles in
+    # ``content:encoded`` or ``summary/description``. If the embed content
+    # meets this threshold the article page is NOT fetched, saving bandwidth
+    # and latency.
+    _FULLTEXT_THRESHOLD = 200
+
     def _extract_content(
         self,
         url: str,
         entry: feedparser.FeedParserDict,
     ) -> tuple[str, str | None]:
-        """Fetch the article page and return ``(text_content, image_url)``.
+        """Extract article content from RSS embed or fetch the page.
 
-        ``image_url`` is the first ``og:image`` or ``twitter:image`` found on
-        the page, or ``None`` when unavailable.
+        Checks embed sources in order:
+        1. ``content:encoded`` (feedparser → ``entry.content``) – common for
+           full-text feeds like wechat2rss, Medium, etc.
+        2. ``summary`` / ``description``
+
+        If the best available embed content meets ``_FULLTEXT_THRESHOLD``
+        chars the page is **not** fetched.  The embed content is passed
+        through ``trafilatura`` to strip HTML noise and produce clean
+        text, reducing LLM token usage.
+
+        ``image_url`` is the first ``og:image`` or ``twitter:image`` found
+        on the fetched page, or ``None`` when unavailable.
         """
+        # --- Step 1: check RSS embed for full-text ---
+        # Priority 1: content:encoded (feedparser exposes via entry.content)
+        embed_text = ""
+        content_list = entry.get("content", [])
+        if content_list:
+            # content is a list of dicts; take the first one's value
+            embed_text = content_list[0].get("value", "") or ""
+
+        # Priority 2: summary / description (only if content:encoded is empty)
+        if not embed_text:
+            embed_text = entry.get("summary", "") or entry.get("description", "")
+
+        if isinstance(embed_text, str):
+            embed_text = embed_text.strip()
+        else:
+            embed_text = str(embed_text).strip()
+
+        if len(embed_text) >= self._FULLTEXT_THRESHOLD:
+            logger.debug(
+                "Full-text RSS embed for %s (%d chars), skipping fetch",
+                url,
+                len(embed_text),
+            )
+            # Clean HTML noise from embed content to reduce LLM token usage
+            cleaned = trafilatura.extract(
+                embed_text,
+                include_comments=False,
+            )
+            if cleaned:
+                return cleaned, None
+            # trafilatura returned nothing; fall through to fetch
+            logger.debug(
+                "trafilatura returned empty for embed %s, will fetch page",
+                url,
+            )
+
+        # --- Step 2: fetch article page ---
         image_url: str | None = None
         try:
             page = self.client.get(url)
@@ -174,9 +228,9 @@ class RSSCollector:
                 return extracted, image_url
         except Exception as exc:
             logger.debug("article fetch failed for %s: %s", url, exc)
-        summary = entry.get("summary", "")
-        content = summary if isinstance(summary, str) else str(summary)
-        return content, image_url
+
+        # --- Step 3: fallback to RSS embed ---
+        return embed_text, image_url
 
     @staticmethod
     def _parse_published(entry: feedparser.FeedParserDict) -> str:
