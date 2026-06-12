@@ -37,6 +37,7 @@ class OpenAISummarizer(SummarizerProvider):
         max_key_takeaways: int = 5,
         max_summary_paragraphs: int = 5,
         digest_language: str = "en",
+        max_tokens: int = 4096,
     ) -> None:
         self.model = model
         # Normalise: strip trailing slash so we can always append /chat/completions.
@@ -45,6 +46,7 @@ class OpenAISummarizer(SummarizerProvider):
         self.max_key_takeaways = max_key_takeaways
         self.max_summary_paragraphs = max_summary_paragraphs
         self.digest_language = digest_language
+        self.max_tokens = max_tokens
 
     @property
     def model_name(self) -> str:
@@ -127,7 +129,7 @@ class OpenAISummarizer(SummarizerProvider):
                 ),
             },
         ]
-        raw = self._chat(messages)
+        raw = self._chat(messages, max_tokens=self.max_tokens)
         return parse_summary_response(raw)
 
     def generate_digest(

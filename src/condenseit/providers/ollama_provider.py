@@ -60,12 +60,14 @@ class OllamaSummarizer(SummarizerProvider):
         max_key_takeaways: int = 5,
         max_summary_paragraphs: int = 5,
         digest_language: str = "en",
+        num_predict: int = 4096,
     ) -> None:
         self.model = model
         self.client = ollama.Client(host=host)
         self.max_key_takeaways = max_key_takeaways
         self.max_summary_paragraphs = max_summary_paragraphs
         self.digest_language = digest_language
+        self.num_predict = num_predict
 
     @property
     def model_name(self) -> str:
@@ -92,7 +94,7 @@ class OllamaSummarizer(SummarizerProvider):
             model=self.model,
             prompt=prompt,
             think=False,
-            options={"temperature": 0.3, "num_predict": 4096},
+            options={"temperature": 0.3, "num_predict": self.num_predict},
         )
         raw_response = response.get("response", "")
         log_llm_message(conv_id, "RESPONSE", raw_response)

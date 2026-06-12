@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Configurable max_tokens**: `LlmConfig` now has `openai_max_tokens` (default 4096) and `ollama_num_predict` (default 4096), settable in `config.yaml` under `llm:`. Passed through to `OpenAISummarizer` and `OllamaSummarizer`.
+- **Fix CJK content destruction in Chinese digests**: `_strip_non_latin_tail` in `base.py` now only strips CJK blocks in the trailing 30% of the string, preserving legitimate Chinese TLDR/takeaways.
 - **Debug logging via env vars**: `cli.py` now reads `UVICORN_LOG_LEVEL` (default `"info"`) instead of hardcoding `"info"`; `app.py` reads `CONDENSEIT_LOG_LEVEL` (default `"INFO"`) to control the condenseit logger level. Set both to `DEBUG` in `.env` to enable debug output.
 - **Digest progress logging**: Pipeline now prints per-source progress during collection — e.g., `Feed 1/1850`, `YouTube 2/3`, `Collected X articles from Y sources`. Affected: `RSSCollector`, `YouTubeCollector`, and all source loops in `orchestrator.py` (Google News, HackerNews, Reddit, GitHub Releases, Podcast).
 - Admin: OPML import/export, HTMX-enhanced sources table, per-source health after collects.

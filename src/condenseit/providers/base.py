@@ -170,11 +170,18 @@ def _strip_non_latin_tail(value: str) -> str:
     """Remove a trailing CJK/non-Latin injection appended by the LLM.
 
     Some cheap multilingual models start answering in English, then switch
-    to a Chinese refusal phrase mid-field.  This function finds the earliest
-    CJK run that makes up more than 30 % of the remaining text and truncates
-    there, returning a clean Latin-script prefix.
+    to a Chinese refusal phrase mid-field.  This function finds a CJK run
+    in the trailing portion of the text that makes up more than 30% of the
+    remaining tail and truncates there, returning a clean Latin-script prefix.
+
+    A CJK block that appears before the last 30 % of the string is assumed
+    to be the legitimate content (e.g. when the digest language is Chinese)
+    and is left untouched.
     """
+    threshold = len(value) * 0.7
     for m in _CJK_BLOCK_RE.finditer(value):
+        if m.start() < threshold:
+            continue
         tail = value[m.start() :]
         non_ascii_in_tail = sum(1 for c in tail if ord(c) > 127)
         if len(tail) > 0 and non_ascii_in_tail / len(tail) > 0.3:
