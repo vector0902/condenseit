@@ -488,9 +488,16 @@ class DigestPipeline:
                 ]
                 # Collect results in order, None for failed articles
                 summaries = [None] * len(ranked)
+                completed = 0
                 for fut in futures:
                     idx, result = fut.result()
                     summaries[idx] = result
+                    completed += 1
+                    logger.info(
+                        "Summarized %d/%d articles",
+                        completed,
+                        len(ranked),
+                    )
 
             # Process results sequentially to keep DB writes off worker threads.
             for art, result in zip(ranked, summaries):

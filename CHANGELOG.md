@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Digest summarization progress (m/n)**: Pipeline now logs `Summarized X/Y articles` after each article completes, visible in docker logs during LLM summarization phase. Affected: `orchestrator.py` `_safe_summarize` loop.
 - **Docker build cache optimization**: Dockerfile layers restructured to separate dependency installation from source code COPY. `docker-compose.yml` adds `pip_cache` and `frontend_node_modules` named volumes for pip/npm cache persistence. `cache_from` references in build config for BuildKit cache reuse. New `build-cache.sh` script for local cache export/import.
 
 - **Configurable max_tokens**: `LlmConfig` now has `openai_max_tokens` (default 4096) and `ollama_num_predict` (default 4096), settable in `config.yaml` under `llm:`. Passed through to `OpenAISummarizer` and `OllamaSummarizer`.
