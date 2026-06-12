@@ -136,5 +136,6 @@ class OpenRouterSummarizer(SummarizerProvider):
         categorized: dict[str, list[dict[str, Any]]],
         changes: list[dict[str, str]] | None = None,
         videos: list[dict[str, Any]] | None = None,
+        coverage_config: dict | None = None,
     ) -> str:
-        return build_digest_markdown(categorized, changes, videos)
+        return build_digest_markdown(categorized, changes, videos, coverage_config=coverage_config)

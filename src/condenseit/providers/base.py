@@ -453,6 +453,7 @@ class SummarizerProvider(ABC):
         categorized: dict[str, list[dict[str, Any]]],
         changes: list[dict[str, str]] | None = None,
         videos: list[dict[str, Any]] | None = None,
+        coverage_config: dict | None = None,
     ) -> str: ...
 
     @property
