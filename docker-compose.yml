@@ -1,7 +1,7 @@
 services:
   app:
     # image: ${CONDENSEIT_IMAGE:-ghcr.io/wildlifechorus/condenseit:${CONDENSEIT_IMAGE_TAG:-latest}}
-    image: docker.cnb.cool/fjyaxax/condenseit
+    image: docker.cnb.cool/fjyaxax/condenseit:oc
     build:
       context: .
       dockerfile: Dockerfile
