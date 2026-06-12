@@ -167,6 +167,11 @@ _PARTIAL_INT_FIELD_RE = re.compile(r'"novelty"\s*:\s*(\d+)')
 
 
 def _strip_non_latin_tail(value: str) -> str:
+
+    # this logic breaks feeds in CJK, so disable it.
+    if True:
+        return value
+
     """Remove a trailing CJK/non-Latin injection appended by the LLM.
 
     Some cheap multilingual models start answering in English, then switch
