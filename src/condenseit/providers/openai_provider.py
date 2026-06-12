@@ -10,9 +10,14 @@ import httpcore
 from condenseit.digest.format import build_digest_markdown
 from condenseit.providers.base import (
     ArticleSummary,
+    DigestOverview,
     SummarizerProvider,
+    build_aggregate_digest_prompt,
+    build_batch_summarize_prompt,
     build_chat_system_prompt,
     build_chat_user_prompt,
+    parse_aggregate_digest_response,
+    parse_batch_summarize_response,
     parse_summary_response,
     resolve_digest_language,
 )
@@ -148,10 +153,64 @@ class OpenAISummarizer(SummarizerProvider):
         raw = self._chat(messages, max_tokens=self.max_tokens)
         return parse_summary_response(raw)
 
+    def batch_summarize(
+        self,
+        articles: list[dict[str, Any]],
+        max_tokens: int = 8192,
+    ) -> list[ArticleSummary]:
+        if not articles:
+            return []
+        sample_content = (articles[0].get("content") or articles[0].get("description") or "")
+        language = resolve_digest_language(self.digest_language, sample_content)
+        user_prompt = build_batch_summarize_prompt(
+            articles,
+            max_key_takeaways=min(3, self.max_key_takeaways),
+            max_summary_paragraphs=min(2, self.max_summary_paragraphs),
+            language=language,
+        )
+        messages = [
+            {"role": "system", "content": build_chat_system_prompt(language)},
+            {"role": "user", "content": user_prompt},
+        ]
+        raw = self._chat(messages, max_tokens=max_tokens)
+        results = parse_batch_summarize_response(raw, len(articles))
+        # Fallback: if too many results are empty, retry per-article
+        filled = sum(1 for r in results if r.get("tldr"))
+        if filled < len(articles) * 0.5:
+            logger.warning(
+                "batch_summarize: only %d/%d articles parsed; falling back to per-article",
+                filled, len(articles),
+            )
+            return [self.summarize_article(a) for a in articles]
+        return results
+
+    def aggregate_digest(
+        self,
+        entries: list[dict[str, Any]],
+        initial_keywords: dict[str, list[str]] | None = None,
+        max_tokens: int = 4096,
+        digest_language: str = "Chinese",
+    ) -> dict | None:
+        if not entries:
+            return None
+        user_prompt, sys_prompt = build_aggregate_digest_prompt(
+            entries,
+            initial_keywords=initial_keywords,
+            language=digest_language,
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        raw = self._chat(messages, max_tokens=max_tokens)
+        parsed = parse_aggregate_digest_response(raw)
+        return dict(parsed) if parsed else None
+
     def generate_digest(
         self,
         categorized: dict[str, list[dict[str, Any]]],
         changes: list[dict[str, str]] | None = None,
         videos: list[dict[str, Any]] | None = None,
+        coverage_config: dict | None = None,
     ) -> str:
-        return build_digest_markdown(categorized, changes, videos)
+        return build_digest_markdown(categorized, changes, videos, coverage_config=coverage_config)

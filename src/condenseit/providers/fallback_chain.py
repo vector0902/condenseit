@@ -43,10 +43,11 @@ class FallbackChainProvider(SummarizerProvider):
         categorized: dict[str, list[dict[str, Any]]],
         changes: list[dict[str, str]] | None = None,
         videos: list[dict[str, Any]] | None = None,
+        coverage_config: dict | None = None,
     ) -> str:
         for provider in (self.primary, self.fallback):
             try:
-                result = provider.generate_digest(categorized, changes, videos)
+                result = provider.generate_digest(categorized, changes, videos, coverage_config=coverage_config)
                 self._active = provider
                 return result
             except Exception:

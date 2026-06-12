@@ -116,6 +116,19 @@ class ArticleSummary(TypedDict):
     relevance_to_you: str
 
 
+class DigestOverview(TypedDict):
+    """Output from the final aggregation call."""
+
+    overview: str
+    """Overall summary of all articles today."""
+    topic_groups: dict[str, list[int]]
+    """Keyword -> list of article indices belonging to that topic."""
+    hot_news: list[int]
+    """Article indices that are hot / covered by multiple sources."""
+    priority_order: list[int]
+    """Article indices in suggested reading order."""
+
+
 _EMPTY_SUMMARY = ArticleSummary(
     tldr="",
     key_takeaways=[],
@@ -314,44 +327,7 @@ def parse_summary_response(raw: str) -> ArticleSummary:
             data = json.loads(candidate)
             if not isinstance(data, dict):
                 continue
-            takeaways = data.get("key_takeaways", [])
-            if isinstance(takeaways, str):
-                # Some models return a newline-separated string instead of an array.
-                takeaways = [t.strip() for t in takeaways.splitlines() if t.strip()]
-            elif not isinstance(takeaways, list):
-                takeaways = []
-
-            # Parse enrichment fields (new; default to empty when absent).
-            raw_topics = data.get("topics", [])
-            topics = (
-                [str(t).lower().strip() for t in raw_topics if t]
-                if isinstance(raw_topics, list)
-                else []
-            )
-            raw_entities = data.get("entities", [])
-            entities = (
-                [str(e).strip() for e in raw_entities if e]
-                if isinstance(raw_entities, list)
-                else []
-            )
-            try:
-                novelty = max(1, min(5, int(data.get("novelty", 0) or 0)))
-            except (TypeError, ValueError):
-                novelty = 0
-
-            return ArticleSummary(
-                tldr=_strip_non_latin_tail(str(data.get("tldr", "") or "").strip()),
-                key_takeaways=[_strip_non_latin_tail(str(t)) for t in takeaways if t],
-                summary=_strip_non_latin_tail(
-                    str(data.get("summary", "") or "").strip()
-                ),
-                topics=topics,
-                entities=entities[:10],
-                novelty=novelty,
-                relevance_to_you=_strip_non_latin_tail(
-                    str(data.get("relevance_to_you", "") or "").strip()
-                ),
-            )
+            return _parse_single_summary_dict(data)
         except (json.JSONDecodeError, ValueError):
             continue
 
@@ -384,6 +360,239 @@ def parse_summary_response(raw: str) -> ArticleSummary:
         novelty=0,
         relevance_to_you="",
     )
+
+
+def _parse_single_summary_dict(data: dict[str, Any]) -> ArticleSummary:
+    """Convert a parsed JSON dict into an ArticleSummary."""
+    takeaways = data.get("key_takeaways", [])
+    if isinstance(takeaways, str):
+        takeaways = [t.strip() for t in takeaways.splitlines() if t.strip()]
+    elif not isinstance(takeaways, list):
+        takeaways = []
+    raw_topics = data.get("topics", [])
+    topics = (
+        [str(t).lower().strip() for t in raw_topics if t]
+        if isinstance(raw_topics, list)
+        else []
+    )
+    raw_entities = data.get("entities", [])
+    entities = (
+        [str(e).strip() for e in raw_entities if e]
+        if isinstance(raw_entities, list)
+        else []
+    )
+    try:
+        novelty = max(1, min(5, int(data.get("novelty", 0) or 0)))
+    except (TypeError, ValueError):
+        novelty = 0
+    return ArticleSummary(
+        tldr=_strip_non_latin_tail(str(data.get("tldr", "") or "").strip()),
+        key_takeaways=[_strip_non_latin_tail(str(t)) for t in takeaways if t],
+        summary=_strip_non_latin_tail(str(data.get("summary", "") or "").strip()),
+        topics=topics,
+        entities=entities[:10],
+        novelty=novelty,
+        relevance_to_you=_strip_non_latin_tail(
+            str(data.get("relevance_to_you", "") or "").strip()
+        ),
+    )
+
+
+def build_batch_summarize_prompt(
+    articles: list[dict[str, Any]],
+    max_key_takeaways: int = 3,
+    max_summary_paragraphs: int = 2,
+    language: str = "English",
+) -> str:
+    """Build a batch summarization prompt for multiple articles.
+
+    Returns a prompt that asks the LLM to produce a JSON array of article
+    summaries, one per article in the same order.
+    """
+    takeaway_placeholders = ", ".join(
+        f'"<takeaway {i + 1}>"' for i in range(max_key_takeaways)
+    )
+    para_word = "paragraph" if max_summary_paragraphs == 1 else "paragraphs"
+
+    struct_lines = [
+        "{",
+        f'  "tldr": "<one sentence in {language}: what happened and why it matters>",',
+        f'  "key_takeaways": [{takeaway_placeholders}],',
+        f'  "summary": "<brief summary in {language}, {max_summary_paragraphs} {para_word}>",',
+        '  "topics": ["<topic-1>", "<topic-2>", "<topic-3>"],',
+        '  "entities": ["<person-org-product-1>", "<entity-2>"],',
+        '  "novelty": <integer 1-5, how surprising vs mainstream coverage>',
+        "}",
+    ]
+
+    lines = [
+        f"You are a concise news analyst. Below are {len(articles)} articles.",
+        f"For each article, provide a JSON object with its analysis.",
+        f"Respond ONLY with a JSON array of {len(articles)} objects, one per article,",
+        f"in the SAME ORDER as listed below. No markdown, no code fences, no extra text.",
+        f"Write all JSON field values in {language} regardless of the article's language.",
+        "",
+        "Each object must use this exact structure:",
+        *struct_lines,
+        "",
+    ]
+    for i, article in enumerate(articles, 1):
+        title = article.get("title", "Untitled")
+        content = (article.get("content") or article.get("description") or "")[:2000]
+        lines.extend([f"Article {i}:", f"Title: {title}", f"Content: {content}", ""])
+
+    return "\n".join(lines)
+
+
+def parse_batch_summarize_response(
+    raw: str, expected_count: int
+) -> list[ArticleSummary]:
+    """Parse a JSON array response from batch summarization.
+
+    Falls back gracefully: if the array is shorter than expected, pads with
+    empty summaries; if the array is longer, truncates.
+    """
+    text = (raw or "").strip()
+
+    candidates: list[str] = [text]
+    # Try extracting from code fence
+    m = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL | re.IGNORECASE)
+    if m:
+        candidates.insert(0, m.group(1).strip())
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, list):
+                results = []
+                for item in data:
+                    if isinstance(item, dict):
+                        results.append(_parse_single_summary_dict(item))
+                    else:
+                        results.append(ArticleSummary(
+                            tldr="", key_takeaways=[], summary="",
+                            topics=[], entities=[], novelty=0, relevance_to_you="",
+                        ))
+                while len(results) < expected_count:
+                    results.append(ArticleSummary(
+                        tldr="", key_takeaways=[], summary="",
+                        topics=[], entities=[], novelty=0, relevance_to_you="",
+                    ))
+                return results[:expected_count]
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    # Fallback: try to find individual JSON objects in the text
+    brace_matches = list(re.finditer(r"\{(?:[^{}]|(?:\{[^{}]*\}))*\}", text, re.DOTALL))
+    results = []
+    for m in brace_matches:
+        try:
+            item = json.loads(m.group(0))
+            if isinstance(item, dict) and item.get("tldr"):
+                results.append(_parse_single_summary_dict(item))
+                if len(results) >= expected_count:
+                    break
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    while len(results) < expected_count:
+        results.append(ArticleSummary(
+            tldr="", key_takeaways=[], summary="",
+            topics=[], entities=[], novelty=0, relevance_to_you="",
+        ))
+    return results[:expected_count]
+
+
+def build_aggregate_digest_prompt(
+    entries: list[dict[str, Any]],
+    initial_keywords: dict[str, list[str]] | None = None,
+    language: str = "English",
+) -> tuple[str, str]:
+    """Build aggregate digest prompt.
+
+    Returns (user_prompt, system_prompt).  The final LLM call takes all
+    article summaries and produces a structured overview.
+    """
+    sys_prompt = (
+        "You are a senior news editor creating a daily digest. "
+        "Respond ONLY with a JSON object. No markdown, no code fences."
+    )
+
+    kw_hints = ""
+    if initial_keywords:
+        high = initial_keywords.get("high", [])
+        medium = initial_keywords.get("medium", [])
+        if high:
+            kw_hints += f"\nHigh-priority keywords (must use): {', '.join(high)}"
+        if medium:
+            kw_hints += f"\nMedium-priority keywords (use if relevant): {', '.join(medium)}"
+
+    article_lines = []
+    for idx, entry in enumerate(entries):
+        title = (entry.get("title") or "").strip()
+        source = (entry.get("source") or "").strip()
+        category = (entry.get("category") or "General").strip()
+        tldr = (entry.get("tldr") or "").strip()
+        topics = (entry.get("topics") or [])
+        topics_str = ", ".join(str(t) for t in topics) if topics else "(none)"
+        article_lines.append(
+            f"[{idx}] Category: {category} | Source: {source}\n"
+            f"    Title: {title}\n"
+            f"    TLDR: {tldr}\n"
+            f"    Topics: {topics_str}"
+        )
+
+    user_prompt = (
+        f"Below are {len(entries)} articles collected today, each with its "
+        f"TLDR summary and topics. Your job: produce a final digest.\n"
+        f"1. Write an overall {language} overview paragraph (\"today's digest\").\n"
+        f"2. Group articles into topical keyword sections (use Initial Keywords when applicable).\n"
+        f"3. Identify hot news articles (stories covered across multiple sources).\n"
+        f"4. Suggest a priority reading order.\n"
+        f"{kw_hints}\n\n"
+        f"Respond with this JSON structure:\n"
+        f"{{\n"
+        f'  "overview": "<3-5 sentence overall summary of today in {language}>",\n'
+        f'  "topic_groups": {{"keyword1": [article_indices], "keyword2": [...]}},\n'
+        f'  "hot_news": [article_indices of hot stories],\n'
+        f'  "priority_order": [all article indices in suggested order]\n'
+        f"}}\n\n"
+        f"Articles:\n"
+        + "\n".join(article_lines)
+    )
+
+    return user_prompt, sys_prompt
+
+
+def parse_aggregate_digest_response(raw: str) -> DigestOverview | None:
+    """Parse the aggregate digest JSON response."""
+    text = (raw or "").strip()
+    candidates: list[str] = [text]
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if m:
+        candidates.insert(0, m.group(1).strip())
+    m2 = re.compile(r"\{.*\}", re.DOTALL).search(text)
+    if m2:
+        candidates.append(m2.group(0))
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+            if not isinstance(data, dict):
+                continue
+            return DigestOverview(
+                overview=str(data.get("overview", "") or ""),
+                topic_groups={
+                    str(k): [int(i) for i in v if isinstance(i, (int, float))]
+                    for k, v in (data.get("topic_groups") or {}).items()
+                    if isinstance(v, list)
+                },
+                hot_news=[int(i) for i in (data.get("hot_news") or []) if isinstance(i, (int, float))],
+                priority_order=[int(i) for i in (data.get("priority_order") or []) if isinstance(i, (int, float))],
+            )
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
+    return None
 
 
 def build_chat_system_prompt(language: str = "English") -> str:
@@ -447,12 +656,41 @@ class SummarizerProvider(ABC):
         """Summarize ``article`` and return a structured result."""
         ...
 
+    def batch_summarize(
+        self,
+        articles: list[dict[str, Any]],
+        max_tokens: int = 8192,
+    ) -> list[ArticleSummary]:
+        """Summarize multiple articles in a single LLM call.
+
+        Default implementation falls back to per-article calls.
+        Subclasses should override with a batched prompt for efficiency.
+        """
+        return [self.summarize_article(a) for a in articles]
+
+    def aggregate_digest(
+        self,
+        entries: list[dict[str, Any]],
+        initial_keywords: dict[str, list[str]] | None = None,
+        max_tokens: int = 4096,
+        digest_language: str = "English",
+    ) -> dict | None:
+        """One LLM call to produce an overall digest overview.
+
+        Takes all per-article summaries and produces a structured result
+        with overall summary, topic groups, hot news, and priority order.
+        Returns None if aggregation is not supported (pipeline falls back
+        to existing format.py logic).
+        """
+        return None
+
     @abstractmethod
     def generate_digest(
         self,
         categorized: dict[str, list[dict[str, Any]]],
         changes: list[dict[str, str]] | None = None,
         videos: list[dict[str, Any]] | None = None,
+        coverage_config: dict | None = None,
     ) -> str: ...
 
     @property

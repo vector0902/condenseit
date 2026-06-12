@@ -155,6 +155,25 @@ class RelevanceConfig(BaseModel):
 
     topic_score_weight: float = 0.3
 
+    # === Coverage (multi-source coverage signal) ===
+    coverage_weight: float = 0.5
+    coverage_mode: str = "percentile"   # "absolute" | "percentile" | "zscore"
+    coverage_percentile: float = 95.0   # coverage above this percentile gets boost
+    coverage_min_sources_pct: float = 0.5  # min % of feeds covered for Hot News
+    coverage_boost_cross_category: float = 1.5  # extra boost per additional category
+    coverage_use_log: bool = True       # True=log(n), False=n
+    coverage_show_in_digest: bool = True
+
+    # === Hot News ===
+    hot_news_top_n: int = 15
+    hot_news_min_percentile: float = 90.0
+
+    # === Category Priority ===
+    category_priority_enabled: bool = True
+    category_priority_tiers: dict[str, float] = Field(
+        default_factory=lambda: {"0": 3.0, "1": 2.0, "2": 1.0, "z": -1.0},
+    )
+
     llm_rerank_enabled: bool = False
     # Model for reranking. Empty string = use the summarizer model.
     llm_rerank_model: str = ""

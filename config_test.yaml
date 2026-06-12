@@ -1,0 +1,63 @@
+model: "nex-agi/Nex-N2-Pro"
+summarize_workers: 2
+digest_language: "source"
+max_articles_per_digest: 50
+balance_digest_categories: true
+max_articles_per_category: 20
+max_article_age_hours: 0  # disable age filter
+
+feeds:
+  - url: "http://localhost:18999/xzrj.xml"
+    category: "小众软件"
+    priority: 0
+  - url: "http://localhost:18999/jiqizhixin.xml"
+    category: "机器之心"
+    priority: 1
+  - url: "http://localhost:18999/liangziwei.xml"
+    category: "量子位"
+    priority: 1
+  - url: "http://localhost:18999/xinzhiyuan.xml"
+    category: "新智元"
+    priority: 1
+
+youtube_channels: []
+watch_urls: []
+
+exclude_keywords:
+  - "Community Forum"
+  - "promotional code"
+  - "promotional campaign"
+
+relevance:
+  initial_keywords:
+    high: ["free", "限免", "免费", "AI", "开源", "agent", "模型", "视频", "芯片", "招聘"]
+    medium: ["docker", "github", "python", "go", "rust", "安全", "融资", "GPT"]
+  min_ratings_for_learning: 5
+  tfidf_preference_weight: 0.35
+  category_preference_weight: 0.6
+  source_preference_weight: 0.3
+  rating_decay_half_life_days: 30
+  implicit_signal_weight: 0.5
+  coverage_weight: 0.5
+  coverage_mode: "percentile"
+  coverage_percentile: 95.0
+  coverage_min_sources_pct: 0.5
+  hot_news_top_n: 15
+  hot_news_min_percentile: 90.0
+  category_priority_enabled: true
+  category_priority_tiers:
+    "0": 3.0
+    "1": 2.0
+    "2": 1.0
+    "z": -1.0
+
+output:
+  format: "both"
+  path: "data/digests"
+
+llm:
+  provider: "openai"
+  openai_max_tokens: 8192
+  openai_base_url: "https://api.siliconflow.cn/v1"
+  openai_api_key: "sk-nbxfmbievphwvetalzkccadnorczcmldgpsedrsctftffdnl"
+  openai_model: "nex-agi/Nex-N2-Pro"

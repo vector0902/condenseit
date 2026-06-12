@@ -2,16 +2,17 @@
 
 import json
 import logging
+import math
 import shutil
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Self
 
 import markdown
 import numpy as np
+from datasketch import MinHash, MinHashLSH
 
 from condenseit.collectors.github_releases import GitHubReleasesCollector
 from condenseit.collectors.google_news import GoogleNewsCollector
@@ -40,6 +41,28 @@ from condenseit.store.secure_keys import SecureKeyStore
 from condenseit.store.sources import SourceRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_priority_tier(category: str) -> str:
+    """Infer priority tier from category name prefix conventions.
+
+    - ``0`` prefix → highest priority (e.g. "0Self")
+    - ``1.`` / ``1_`` prefix → high priority (e.g. "1.bili1ITFun")
+    - ``2.`` / ``2_`` prefix → medium priority (e.g. "2.bili2game")
+    - ``z`` prefix → low priority (e.g. "z_xxx")
+    - anything else → no tier bonus
+    """
+    cat = category.strip()
+    if cat.startswith("0"):
+        return "0"
+    if cat.startswith("1.") or cat.startswith("1_"):
+        return "1"
+    if cat.startswith("2.") or cat.startswith("2_"):
+        return "2"
+    if cat.startswith("z"):
+        return "z"
+    return ""
+
 
 _APP_CSS = Path(__file__).resolve().parent.parent / "web" / "static" / "app.css"
 
@@ -372,9 +395,40 @@ class DigestPipeline:
                 art["preference_score"] = art.get("preference_score", 0.0) + 2.0
                 art["highlighted"] = True
 
-        # Deduplicate after ranking so the highest-scoring version of each
-        # story cluster is the one that survives.
-        ranked = self._deduplicate_stories(ranked)
+        # Cluster stories and collect coverage metadata
+        ranked = self._cluster_stories(ranked)
+
+        # Coverage percentile boost
+        rel = self.config.relevance
+        if rel.coverage_weight > 0 and rel.coverage_mode == "percentile":
+            source_counts = sorted(
+                [a.get("coverage_meta", {}).get("num_sources", 1) for a in ranked]
+            )
+            total = len(source_counts)
+            for art in ranked:
+                ns = art.get("coverage_meta", {}).get("num_sources", 1)
+                pct = sum(1 for v in source_counts if v <= ns) / total * 100 if total else 0
+                art["coverage_meta"]["coverage_percentile"] = pct
+                if pct >= rel.coverage_percentile:
+                    raw = ns if not rel.coverage_use_log else (ns + 1 if ns == 0 else math.log(ns + 1))
+                    boost = rel.coverage_weight * raw
+                    art["preference_score"] = art.get("preference_score", 0) + boost
+                    art.setdefault("score_breakdown", {})["coverage_boost"] = round(boost, 4)
+                    # Cross-category bonus
+                    nc = art["coverage_meta"].get("num_categories", 1)
+                    if nc >= 2:
+                        cb = rel.coverage_boost_cross_category * (nc - 1)
+                        art["preference_score"] += cb
+                        art["score_breakdown"]["cross_category_boost"] = round(cb, 4)
+
+        # Category priority tier bonus
+        if rel.category_priority_enabled:
+            for art in ranked:
+                tier = _infer_priority_tier(str(art.get("category", "")))
+                bonus = rel.category_priority_tiers.get(tier, 0)
+                if bonus:
+                    art["preference_score"] = art.get("preference_score", 0) + bonus
+                    art.setdefault("score_breakdown", {})["priority_tier"] = bonus
 
         if self.config.relevance.llm_rerank_enabled and not dry_run:
             profile_narrative = build_profile_narrative(
@@ -460,48 +514,46 @@ class DigestPipeline:
         video_urls = {v.url for v in videos}
 
         if not dry_run:
-            workers = self.config.summarize_workers
+            BATCH_SIZE = 10
             logger.info(
-                "Summarizing %d articles with %d concurrent worker(s)",
+                "Summarizing %d articles in batches of %d",
                 len(ranked),
-                workers,
+                BATCH_SIZE,
             )
-            # Parallelize LLM API calls (the bottleneck). Use executor.map with
-            # exception handling so one article failure doesn't break the entire
-            # digest. We map to an index-aware wrapper that catches exceptions.
-            def _safe_summarize(index: int, article: dict) -> tuple[int, dict | None]:
-                try:
-                    result = self.summarizer.summarize_article(article)
-                    return (index, result)
-                except Exception:
-                    logger.exception(
-                        "Failed to summarize '%s' (url=%s); skipping",
-                        article.get("title", "Unknown"),
-                        article.get("url", "Unknown"),
-                    )
-                    return (index, None)
 
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [
-                    pool.submit(_safe_summarize, i, art)
-                    for i, art in enumerate(ranked)
-                ]
-                # Collect results in order, None for failed articles
-                summaries = [None] * len(ranked)
-                completed = 0
-                for fut in futures:
-                    idx, result = fut.result()
-                    summaries[idx] = result
-                    completed += 1
+            # Phase 1: batch summarization (fewer LLM calls)
+            all_summaries: list[tuple[dict[str, Any], dict | None]] = []
+            for batch_start in range(0, len(ranked), BATCH_SIZE):
+                batch = ranked[batch_start:batch_start + BATCH_SIZE]
+                try:
+                    batch_results = self.summarizer.batch_summarize(batch)
+                    for art, result in zip(batch, batch_results):
+                        all_summaries.append((art, result))
                     logger.info(
-                        "Summarized %d/%d articles",
-                        completed,
+                        "Batch summarized %d-%d / %d articles",
+                        batch_start + 1,
+                        min(batch_start + BATCH_SIZE, len(ranked)),
                         len(ranked),
                     )
+                except Exception:
+                    logger.exception(
+                        "Batch summarization failed for articles %d-%d; falling back to per-article",
+                        batch_start + 1,
+                        min(batch_start + BATCH_SIZE, len(ranked)),
+                    )
+                    for i, art in enumerate(batch):
+                        try:
+                            result = self.summarizer.summarize_article(art)
+                            all_summaries.append((art, result))
+                        except Exception:
+                            logger.exception(
+                                "Failed to summarize '%s'; skipping",
+                                art.get("title", "Unknown"),
+                            )
+                            all_summaries.append((art, None))
 
-            # Process results sequentially to keep DB writes off worker threads.
-            for art, result in zip(ranked, summaries):
-                # Skip articles that failed to summarize
+            # Build entries from summaries
+            for art, result in all_summaries:
                 if result is None:
                     continue
                 category = str(art.get("category", "General"))
@@ -524,8 +576,13 @@ class DigestPipeline:
                     "entities": result.get("entities") or [],
                     "novelty": result.get("novelty") or 0,
                     "relevance_to_you": result.get("relevance_to_you") or "",
+                    "coverage_meta": art.get("coverage_meta", {
+                        "num_merged": 1, "num_sources": 1,
+                        "sources": [str(art.get("source", ""))],
+                        "num_categories": 1,
+                        "categories": [str(art.get("category", "General"))],
+                    }),
                 }
-                # Persist enrichment so PreferenceEngine can use topics on next run.
                 try:
                     self.store.save_enrichment(
                         url=art["url"],
@@ -546,10 +603,48 @@ class DigestPipeline:
                 else:
                     categorized.setdefault(category, []).append(entry)
 
+            # Phase 2: one final LLM call for overall aggregation
+            all_entries = [e for cat_list in categorized.values() for e in cat_list]
+            aggregated = None
+            if all_entries:
+                try:
+                    lang = self.config.digest_language or "source"
+                    digest_lang_name = "Chinese" if lang in ("source", "zh", "zh-cn", "zh-tw") else lang
+                    aggregated = self.summarizer.aggregate_digest(
+                        all_entries,
+                        initial_keywords=self.config.relevance.initial_keywords,
+                        max_tokens=8192,
+                        digest_language=digest_lang_name,
+                    )
+                    if aggregated:
+                        logger.info("Aggregate digest overview generated")
+                except Exception:
+                    logger.exception("Aggregate digest call failed; skipping")
+
+            rel = self.config.relevance
+            cfg = self.config
+            # Apply aggregation result: priority order
+            overview_text = ""
+            if aggregated:
+                overview_text = aggregated.get("overview", "") or ""
+                priority_order = aggregated.get("priority_order") or []
+                if priority_order and len(priority_order) == len(all_entries):
+                    for rank_idx, entry_idx in enumerate(priority_order):
+                        if entry_idx < len(all_entries):
+                            all_entries[entry_idx]["preference_score"] = len(priority_order) - rank_idx
+
             self.digest_md = self.summarizer.generate_digest(
                 categorized,
                 changes,
                 video_summaries or None,
+                coverage_config={
+                    "show_in_digest": rel.coverage_show_in_digest,
+                    "hot_news_min_percentile": rel.hot_news_min_percentile,
+                    "hot_news_top_n": rel.hot_news_top_n,
+                    "min_sources_pct": rel.coverage_min_sources_pct,
+                    "initial_keywords": rel.initial_keywords,
+                    "overview": overview_text,
+                },
             )
         else:
             self.digest_md = self._dry_run_markdown(ranked, changes, len(videos))
@@ -789,70 +884,86 @@ class DigestPipeline:
             )
         return kept
 
-    def _deduplicate_stories(
+    def _cluster_stories(
         self, articles: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Remove cross-source duplicates from an already-ranked article list.
+        """Cluster cross-source stories and collect coverage metadata.
 
-        Pass 1 - Jaccard title similarity: skips any article whose title word
-        set overlaps >= 0.35 with an already-kept article.  Titles shorter than
-        3 words are never fuzzy-matched to avoid false positives.
+        Uses MinHash LSH for efficient near-duplicate detection (~O(n) vs O(n²)).
+        Unlike the old dedup, this retains coverage info on each kept article:
+        - num_merged: how many articles tell this story
+        - sources: set of unique source names
+        - categories: set of unique categories covering this story
 
-        Pass 2 - Semantic embedding dedup (when an embedding provider is
-        configured and ``semantic_dedup_enabled`` is true): embeds each
-        surviving article and drops it if its cosine similarity to any
-        already-kept embedding exceeds ``semantic_dedup_threshold``.
-        Embeddings are fetched from the SQLite cache first so articles that
-        were already embedded during preference scoring incur no extra cost.
-
-        Because the input is already ranked, the highest-scoring version of
-        each story cluster always survives both passes.
+        Pass 1 - MinHash LSH on title (threshold ~0.35)
+        Pass 2 - Semantic embedding dedup (unchanged, but accumulates instead of drops)
         """
         if not articles:
             return articles
 
-        _jaccard_threshold = 0.35
-
-        def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
-            union = a | b
-            return len(a & b) / len(union) if union else 0.0
-
+        threshold = 0.35
+        lsh = MinHashLSH(threshold=threshold, num_perm=128)
+        clusters: dict[str, dict] = {}
         kept: list[dict[str, Any]] = []
-        kept_word_sets: list[frozenset[str]] = []
-        jaccard_dropped = 0
 
-        for art in articles:
+        for art in sorted(articles, key=lambda x: -x.get("preference_score", 0)):
             title = str(art.get("title") or "").lower().strip()
-            words = frozenset(title.split())
-            if len(words) >= 3 and any(
-                _jaccard(words, existing) >= _jaccard_threshold
-                for existing in kept_word_sets
-                if len(existing) >= 3
-            ):
-                jaccard_dropped += 1
+            tokens = [t for t in title.split() if len(t) >= 2]
+            if len(tokens) < 3:
+                kept.append(art)
                 continue
-            kept.append(art)
-            kept_word_sets.append(words)
 
-        if jaccard_dropped:
+            m = MinHash(num_perm=128)
+            for t in tokens:
+                m.update(t.encode())
+
+            similar = lsh.query(m)
+            if similar:
+                rep_key = similar[0]
+                cluster = clusters[rep_key]
+                cluster["num_merged"] += 1
+                cluster["sources"].add(str(art.get("source", "")))
+                cluster["categories"].add(str(art.get("category", "General")))
+            else:
+                key = art["url"]
+                lsh.insert(key, m)
+                clusters[key] = {
+                    "num_merged": 1,
+                    "sources": {str(art.get("source", ""))},
+                    "categories": {str(art.get("category", "General"))},
+                }
+                kept.append(art)
+
+        if len(clusters) < len(articles):
             logger.info(
-                "Story dedup (Jaccard): removed %d near-duplicate(s)"
-                " (threshold >= %.2f), %d remaining",
-                jaccard_dropped,
-                _jaccard_threshold,
-                len(kept),
+                "Story clustering (LSH): %d articles merged into %d cluster(s)"
+                " (threshold >= %.2f)",
+                len(articles),
+                len(clusters),
+                threshold,
             )
 
+        # Write coverage metadata
+        for art in kept:
+            meta = clusters.get(art["url"], {
+                "num_merged": 1,
+                "sources": {str(art.get("source", ""))},
+                "categories": {str(art.get("category", "General"))},
+            })
+            art["coverage_meta"] = {
+                "num_merged": meta["num_merged"],
+                "num_sources": len(meta["sources"]),
+                "sources": list(meta["sources"]),
+                "num_categories": len(meta["categories"]),
+                "categories": list(meta["categories"]),
+            }
+
+        # Pass 2: Semantic embedding (unchanged logic, accumulates)
         rel = self.config.relevance
-        if (
-            self._embed_provider is None
-            or not rel.semantic_dedup_enabled
-            or len(kept) < 2
-        ):
+        if self._embed_provider is None or not rel.semantic_dedup_enabled or len(kept) < 2:
             return kept
 
         sem_threshold = rel.semantic_dedup_threshold
-
         def _embed_article(art: dict[str, Any]):
             url = str(art.get("url") or "")
             content_hash = str(art.get("content_hash") or "")
@@ -861,11 +972,9 @@ class DigestPipeline:
             text = (title_text + " " + body[:500]).strip()
             try:
                 vec = get_or_compute_embedding(
-                    self._embed_provider,  # type: ignore[arg-type]
+                    self._embed_provider,
                     self.store,
-                    url,
-                    content_hash,
-                    text,
+                    url, content_hash, text,
                 )
             except Exception:
                 vec = None
@@ -874,27 +983,40 @@ class DigestPipeline:
         with ThreadPoolExecutor(max_workers=8) as pool:
             results = list(pool.map(_embed_article, kept))
 
-        sem_kept: list[dict[str, Any]] = []
+        sem_merged = 0
         kept_vecs: list[np.ndarray] = []
-        sem_dropped = 0
+        sem_kept: list[dict[str, Any]] = []
 
         for art, vec in results:
             if vec is None:
                 sem_kept.append(art)
                 continue
-            if any(cosine_similarity(vec, kv) >= sem_threshold for kv in kept_vecs):
-                sem_dropped += 1
-                continue
-            sem_kept.append(art)
-            kept_vecs.append(vec)
+            dup_idx = None
+            for i, kv in enumerate(kept_vecs):
+                if cosine_similarity(vec, kv) >= sem_threshold:
+                    dup_idx = i
+                    break
+            if dup_idx is not None:
+                sem_merged += 1
+                existing = sem_kept[dup_idx]
+                emeta = existing.get("coverage_meta", {})
+                ametac = art.get("coverage_meta", {})
+                emeta["num_merged"] = emeta.get("num_merged", 1) + ametac.get("num_merged", 1)
+                srcs = set(emeta.get("sources", [])) | set(ametac.get("sources", []))
+                emeta["sources"] = list(srcs)
+                emeta["num_sources"] = len(srcs)
+                cats = set(emeta.get("categories", [])) | set(ametac.get("categories", []))
+                emeta["categories"] = list(cats)
+                emeta["num_categories"] = len(cats)
+            else:
+                sem_kept.append(art)
+                kept_vecs.append(vec)
 
-        if sem_dropped:
+        if sem_merged:
             logger.info(
-                "Story dedup (semantic): removed %d near-duplicate(s)"
+                "Story clustering (semantic): merged %d article(s)"
                 " (cosine >= %.2f), %d remaining",
-                sem_dropped,
-                sem_threshold,
-                len(sem_kept),
+                sem_merged, sem_threshold, len(sem_kept),
             )
 
         return sem_kept
