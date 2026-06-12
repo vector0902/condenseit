@@ -1,16 +1,16 @@
 services:
   app:
     # image: ${CONDENSEIT_IMAGE:-ghcr.io/wildlifechorus/condenseit:${CONDENSEIT_IMAGE_TAG:-latest}}
-    image: docker.cnb.cool/fjyaxax/condenseit
+    image: docker.cnb.cool/fjyaxax/condenseit:qw
     build:
       context: .
       dockerfile: Dockerfile
       cache_from:
         - docker.cnb.cool/fjyaxax/condenseit:latest
-        - type=local,src=/tmp/docker-cache
-    container_name: condenseit-app
+        - type=local,src=/tmp/docker-cache-qw
+    # container_name: condenseit-app
     ports:
-      - "8899:8899"
+      - "8891:8899"
     env_file:
       # - .env
       - ../condenseit_data/.env
