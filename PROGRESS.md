@@ -42,3 +42,29 @@
 - `Dockerfile`: 重构分层结构，依赖层与源码层分离
 - `docker-compose.yml`: 添加 pip_cache 和 frontend_node_modules 卷，添加 cache_from
 - `build-cache.sh`: 新增，本地缓存导出/导入/清理脚本
+
+## 2026-06-12 (续)
+
+### Digest Job 超时容错修复
+
+### 问题
+- LLM API 调用超时（ReadTimeout 120s）导致整个 digest job 失败
+- `openai_provider.py` 只处理 429 重试，不处理超时
+- `orchestrator.py` 使用 `pool.map()`，一个 worker 异常 → 全部中断
+- 一次超时 = 整个 digest 丢失
+
+### 修复
+1. **`openai_provider.py`**: 添加超时重试逻辑
+   - 捕获 `httpx.ReadTimeout`/`httpx.ConnectTimeout`/`httpcore.ReadTimeout`/`httpcore.ConnectTimeout`
+   - 超时后最多重试 2 次（共 3 次尝试）
+   - 重试间隔使用现有 `_RETRY_WAITS` 列表
+
+2. **`orchestrator.py`**: 添加单篇文章容错
+   - 新增 `_safe_summarize()` 包装器，捕获单个文章 summarization 异常
+   - 失败的文章记录日志并返回 None，不影响其他文章
+   - 处理循环跳过 None 结果的文章
+
+### 效果
+- 单个文章超时不会中断整个 digest job
+- 超时文章被记录日志并跳过，其余文章正常处理
+- 最多 3 次超时重试后才放弃该文章

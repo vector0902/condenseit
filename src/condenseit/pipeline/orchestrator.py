@@ -466,13 +466,37 @@ class DigestPipeline:
                 len(ranked),
                 workers,
             )
-            # Parallelize LLM API calls (the bottleneck). executor.map preserves
-            # input order so zip(ranked, summaries) pairs correctly.
+            # Parallelize LLM API calls (the bottleneck). Use executor.map with
+            # exception handling so one article failure doesn't break the entire
+            # digest. We map to an index-aware wrapper that catches exceptions.
+            def _safe_summarize(index: int, article: dict) -> tuple[int, dict | None]:
+                try:
+                    result = self.summarizer.summarize_article(article)
+                    return (index, result)
+                except Exception:
+                    logger.exception(
+                        "Failed to summarize '%s' (url=%s); skipping",
+                        article.get("title", "Unknown"),
+                        article.get("url", "Unknown"),
+                    )
+                    return (index, None)
+
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                summaries = list(pool.map(self.summarizer.summarize_article, ranked))
+                futures = [
+                    pool.submit(_safe_summarize, i, art)
+                    for i, art in enumerate(ranked)
+                ]
+                # Collect results in order, None for failed articles
+                summaries = [None] * len(ranked)
+                for fut in futures:
+                    idx, result = fut.result()
+                    summaries[idx] = result
 
             # Process results sequentially to keep DB writes off worker threads.
             for art, result in zip(ranked, summaries):
+                # Skip articles that failed to summarize
+                if result is None:
+                    continue
                 category = str(art.get("category", "General"))
                 is_video = art["url"] in video_urls
                 entry_kind = "video" if is_video else str(art.get("kind") or "article")

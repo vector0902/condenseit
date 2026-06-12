@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 import httpx
+import httpcore
 
 from condenseit.digest.format import build_digest_markdown
 from condenseit.providers.base import (
@@ -20,6 +21,7 @@ from condenseit.providers.shared_utils import log_llm_message
 logger = logging.getLogger(__name__)
 
 _RETRY_WAITS = [5, 15, 30]
+_TIMEOUT_RETRIES = 2
 
 
 class OpenAISummarizer(SummarizerProvider):
@@ -76,20 +78,34 @@ class OpenAISummarizer(SummarizerProvider):
         resp: httpx.Response | None = None
         with httpx.Client(timeout=120.0) as client:
             for attempt in range(len(_RETRY_WAITS) + 1):
-                resp = client.post(url, json=payload, headers=headers)
-                if resp.status_code != 429:
-                    resp.raise_for_status()
-                    break
-                if attempt >= len(_RETRY_WAITS):
-                    resp.raise_for_status()
-                wait = int(resp.headers.get("Retry-After") or _RETRY_WAITS[attempt])
-                logger.warning(
-                    "OpenAI-compat 429 rate limit; retrying in %ds (attempt %d/%d)",
-                    wait,
-                    attempt + 1,
-                    len(_RETRY_WAITS),
-                )
-                time.sleep(wait)
+                try:
+                    resp = client.post(url, json=payload, headers=headers)
+                    if resp.status_code != 429:
+                        resp.raise_for_status()
+                        break
+                    if attempt >= len(_RETRY_WAITS):
+                        resp.raise_for_status()
+                    wait = int(resp.headers.get("Retry-After") or _RETRY_WAITS[attempt])
+                    logger.warning(
+                        "OpenAI-compat 429 rate limit; retrying in %ds (attempt %d/%d)",
+                        wait,
+                        attempt + 1,
+                        len(_RETRY_WAITS),
+                    )
+                    time.sleep(wait)
+                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpcore.ReadTimeout, httpcore.ConnectTimeout) as exc:
+                    if attempt < len(_RETRY_WAITS) + _TIMEOUT_RETRIES - 1:
+                        wait = _RETRY_WAITS[min(attempt, len(_RETRY_WAITS) - 1)]
+                        logger.warning(
+                            "OpenAI-compat timeout (%s); retrying in %ds (attempt %d/%d)",
+                            type(exc).__name__,
+                            wait,
+                            attempt + 1,
+                            len(_RETRY_WAITS) + _TIMEOUT_RETRIES,
+                        )
+                        time.sleep(wait)
+                        continue
+                    raise
 
         data = resp.json()  # type: ignore[union-attr]
         choices = data.get("choices", [])
