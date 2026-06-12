@@ -22,3 +22,23 @@
 - `providers/openai_provider.py`: 接受 `max_tokens` 参数并使用
 - `providers/ollama_provider.py`: 接受 `num_predict` 参数并使用
 - `providers/factory.py`: 从 config 传入参数
+
+## 2026-06-12
+
+### Docker Build 缓存优化
+
+### 问题
+- `docker compose build` 每次全量构建，耗时过长
+
+### 优化措施
+1. **Dockerfile 分层优化**：将 `pyproject.toml` 和 `src/` 分离 COPY，依赖安装层独立，源码变动不触发 pip reinstall
+2. **docker-compose.yml 添加缓存卷**：
+   - `pip_cache:/root/.cache/pip` — 缓存 Python 包
+   - `frontend_node_modules:/app/frontend/node_modules` — 缓存 node_modules
+3. **BuildKit 缓存引用**：`cache_from` 引用已有镜像和本地缓存目录
+4. **build-cache.sh 脚本**：支持 export/import 本地缓存目录
+
+### 改动
+- `Dockerfile`: 重构分层结构，依赖层与源码层分离
+- `docker-compose.yml`: 添加 pip_cache 和 frontend_node_modules 卷，添加 cache_from
+- `build-cache.sh`: 新增，本地缓存导出/导入/清理脚本

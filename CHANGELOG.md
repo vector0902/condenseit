@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Docker build cache optimization**: Dockerfile layers restructured to separate dependency installation from source code COPY. `docker-compose.yml` adds `pip_cache` and `frontend_node_modules` named volumes for pip/npm cache persistence. `cache_from` references in build config for BuildKit cache reuse. New `build-cache.sh` script for local cache export/import.
+
 - **Configurable max_tokens**: `LlmConfig` now has `openai_max_tokens` (default 4096) and `ollama_num_predict` (default 4096), settable in `config.yaml` under `llm:`. Passed through to `OpenAISummarizer` and `OllamaSummarizer`.
 - **Fix CJK content destruction in Chinese digests**: `_strip_non_latin_tail` in `base.py` now only strips CJK blocks in the trailing 30% of the string, preserving legitimate Chinese TLDR/takeaways.
 - **Debug logging via env vars**: `cli.py` now reads `UVICORN_LOG_LEVEL` (default `"info"`) instead of hardcoding `"info"`; `app.py` reads `CONDENSEIT_LOG_LEVEL` (default `"INFO"`) to control the condenseit logger level. Set both to `DEBUG` in `.env` to enable debug output.
