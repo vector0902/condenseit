@@ -209,8 +209,8 @@ class LlmConfig(BaseModel):
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
-    openai_max_tokens: int = Field(default=4096, ge=256, le=32768)
-    ollama_num_predict: int = Field(default=4096, ge=256, le=32768)
+    openai_max_tokens: int = Field(default=4096, ge=256, le=262144)
+    ollama_num_predict: int = Field(default=4096, ge=256, le=262144)
 
 
 class VpsConfig(BaseModel):
