@@ -8,7 +8,7 @@ services:
       cache_from:
         - docker.cnb.cool/fjyaxax/condenseit:latest
         - type=local,src=/tmp/docker-cache
-    container_name: condenseit-app
+    #container_name: condenseit-app
     ports:
       - "8899:8899"
     env_file:
