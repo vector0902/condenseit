@@ -224,6 +224,14 @@ class VpsConfig(BaseModel):
     digest_url: str = ""
 
 
+class ClusterDigestConfig(BaseModel):
+    enabled: bool = False
+    min_cluster_size: int = 2
+    min_sources: int = 3
+    max_hot_news_count: int = 10
+    max_digest_count: int = 30
+
+
 class AppConfig(BaseModel):
     model: str = "llama3.2:3b"
     max_articles_per_digest: int = Field(default=50, ge=1, le=200)
@@ -260,6 +268,7 @@ class AppConfig(BaseModel):
     youtube_channels: list[YouTubeChannelConfig] = Field(default_factory=list)
     watch_urls: list[WatchUrlConfig] = Field(default_factory=list)
     relevance: RelevanceConfig = Field(default_factory=RelevanceConfig)
+    cluster_digest: ClusterDigestConfig = Field(default_factory=ClusterDigestConfig)
     youtube_transcription: YouTubeTranscriptionConfig = Field(
         default_factory=YouTubeTranscriptionConfig
     )

@@ -398,6 +398,22 @@ class DigestPipeline:
         # Cluster stories and collect coverage metadata
         ranked = self._cluster_stories(ranked)
 
+        # Cluster digest: prepend coverage context to content for multi-source articles
+        cluster_cfg = self.config.cluster_digest
+        if cluster_cfg.enabled:
+            for art in ranked:
+                meta = art.get("coverage_meta", {})
+                if meta.get("num_merged", 1) >= cluster_cfg.min_cluster_size:
+                    sources_str = ", ".join(meta.get("sources", []))
+                    categories_str = ", ".join(meta.get("categories", []))
+                    context = (
+                        f"[Coverage: this story covered by {meta['num_merged']} articles"
+                        f" from {meta['num_sources']} sources: {sources_str}"
+                        f" | categories: {categories_str}]\n\n"
+                    )
+                    orig = art.get("content", "")
+                    art["content"] = context + orig  # content field not used after summarization
+
         # Coverage percentile boost
         rel = self.config.relevance
         if rel.coverage_weight > 0 and rel.coverage_mode == "percentile":
@@ -516,12 +532,14 @@ class DigestPipeline:
         if not dry_run:
             BATCH_SIZE = 10
             logger.info(
-                "Summarizing %d articles in batches of %d",
+                "Summarizing %d articles in batches of %d (cluster_digest=%s)",
                 len(ranked),
                 BATCH_SIZE,
+                cluster_cfg.enabled,
             )
 
-            # Phase 1: batch summarization (fewer LLM calls)
+            # Phase 1: batch summarization (fewer LLM calls).
+            # Cluster context is already prepended to `content` for multi-source articles.
             all_summaries: list[tuple[dict[str, Any], dict | None]] = []
             for batch_start in range(0, len(ranked), BATCH_SIZE):
                 batch = ranked[batch_start:batch_start + BATCH_SIZE]
