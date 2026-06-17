@@ -89,7 +89,12 @@ def _merge_keyword(kw: str) -> str:
 def _keywords_from_topic_groups(
     topic_groups: dict[str, list[dict[str, Any]]],
 ) -> list[tuple[str, list[dict[str, Any]]]]:
-    """Convert topic_groups dict to sorted list, merging similar groups."""
+    """Convert topic_groups dict to sorted list, merging similar groups.
+
+    Each article appears in exactly one keyword group (the largest group
+    it belongs to), matching the req.md requirement.
+    """
+    # Step 1: merge synonyms, dedup within each group
     merged: dict[str, list[dict[str, Any]]] = {}
     for kw, items in topic_groups.items():
         canonical = _merge_keyword(kw)
@@ -99,9 +104,39 @@ def _keywords_from_topic_groups(
             if title and title not in seen_titles:
                 seen_titles.add(title)
                 merged.setdefault(canonical, []).append(item)
+
+    # Step 2: build article -> groups map for cross-group dedup
+    title_to_groups: dict[str, set[str]] = {}
+    for kw, items in merged.items():
+        for item in items:
+            title = str(item.get("title", ""))
+            if title:
+                title_to_groups.setdefault(title, set()).add(kw)
+
+    group_sizes = {kw: len(items) for kw, items in merged.items()}
+
+    # Step 3: assign each article to its best (largest) group
+    article_group: dict[str, str] = {}
+    for title, groups in sorted(
+        title_to_groups.items(),
+        key=lambda x: (-len(x[1]), x[0]),
+    ):
+        best = max(groups, key=lambda g: (group_sizes.get(g, 0), g))
+        article_group[title] = best
+
+    # Step 4: rebuild groups with deduplicated articles
+    result: dict[str, list[dict[str, Any]]] = {}
+    for kw, items in merged.items():
+        kept = [
+            item for item in items
+            if article_group.get(str(item.get("title", ""))) == kw
+        ]
+        if kept:
+            result[kw] = kept
+
     # Sort by number of articles (descending), then alphabetically
     return sorted(
-        merged.items(),
+        result.items(),
         key=lambda x: (-len(x[1]), x[0]),
     )
 
@@ -126,67 +161,28 @@ def build_digest_markdown(
         lines.append(overview)
         lines.append("")
 
+    # Keywords are user-defined from config (initial_keywords), not AI-invented.
+    # Each article appears in at most one keyword group.
     topic_groups = cfg.get("topic_groups")
-    if topic_groups:
-        # Use LLM aggregate topic_groups as the primary keyword index.
-        kw_groups = _keywords_from_topic_groups(topic_groups)
-        user_kw, llm_index = [], {}
-    else:
-        kw_groups = None
-        user_kw, llm_index = _build_keywords_index(
-            categorized,
-            user_keywords=cfg.get("initial_keywords"),
-        )
+    user_kw, _ = _build_keywords_index(
+        categorized,
+        user_keywords=cfg.get("initial_keywords"),
+    )
 
-    if kw_groups or user_kw or llm_index:
+    if user_kw:
         lines.append("## Keywords")
         lines.append("")
-        if kw_groups:
-            for kw, items in kw_groups:
-                count = f" ({len(items)} articles)" if len(items) > 1 else ""
-                lines.append(f"### {kw}{count}")
-                for item in items:
-                    title = (item.get("title") or "Untitled").strip()
-                    url = (item.get("url") or "").strip()
-                    source = (item.get("source") or "").strip()
-                    link = f"[{title}]({url})" if url else title
-                    src_str = f" (from {source})" if source else ""
-                    lines.append(f"- {link}{src_str}")
-                lines.append("")
-        else:
-            # User keywords in configured order first
-            for kw, items in user_kw:
-                count = f" ({len(items)} articles)" if len(items) > 1 else ""
-                lines.append(f"### {kw}{count}")
-                for item in items:
-                    title = (item.get("title") or "Untitled").strip()
-                    url = (item.get("url") or "").strip()
-                    source = (item.get("source") or "").strip()
-                    link = f"[{title}]({url})" if url else title
-                    src_str = f" (from {source})" if source else ""
-                    lines.append(f"- {link}{src_str}")
-                lines.append("")
-            # LLM-extracted topics, merged via synonym map
-            merged_topics: dict[str, list[dict[str, Any]]] = {}
-            for kw, items in sorted(llm_index.items()):
-                canonical = _merge_keyword(kw)
-                for item in items:
-                    if item not in merged_topics.setdefault(canonical, []):
-                        merged_topics[canonical].append(item)
-            for kw, items in sorted(
-                merged_topics.items(),
-                key=lambda x: (-len(x[1]), x[0]),
-            ):
-                count = f" ({len(items)} articles)" if len(items) > 1 else ""
-                lines.append(f"### {kw}{count}")
-                for item in items:
-                    title = (item.get("title") or "Untitled").strip()
-                    url = (item.get("url") or "").strip()
-                    source = (item.get("source") or "").strip()
-                    link = f"[{title}]({url})" if url else title
-                    src_str = f" (from {source})" if source else ""
-                    lines.append(f"- {link}{src_str}")
-                lines.append("")
+        for kw, items in user_kw:
+            count = f" ({len(items)} articles)" if len(items) > 1 else ""
+            lines.append(f"### {kw}{count}")
+            for item in items:
+                title = (item.get("title") or "Untitled").strip()
+                url = (item.get("url") or "").strip()
+                source = (item.get("source") or "").strip()
+                link = f"[{title}]({url})" if url else title
+                src_str = f" (from {source})" if source else ""
+                lines.append(f"- {link}{src_str}")
+            lines.append("")
 
     llm_hot = cfg.get("hot_news_entries")
     if llm_hot:
@@ -316,7 +312,7 @@ def _build_keywords_index(
     user_kw: list[tuple[str, list[dict[str, Any]]]] = []
     if user_keywords:
         ordered_keys = user_keywords.get("high", []) + user_keywords.get("medium", [])
-        seen_titles: set[tuple[str, str]] = set()
+        seen_titles: set[str] = set()
         for kw in ordered_keys:
             kw_lower = kw.strip().lower()
             if not kw_lower:
@@ -324,13 +320,13 @@ def _build_keywords_index(
             matched: list[dict[str, Any]] = []
             for a in articles:
                 title = (a.get("title") or "").strip()
-                if (kw_lower, title) in seen_titles:
+                if not title or title in seen_titles:
                     continue
                 topics = [t.lower() for t in (a.get("topics") or [])]
                 title_lower = title.lower()
                 if any(kw_lower in t for t in topics) or kw_lower in title_lower:
                     matched.append(a)
-                    seen_titles.add((kw_lower, title))
+                    seen_titles.add(title)
             if matched:
                 user_kw.append((kw.strip(), matched))
 
