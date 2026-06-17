@@ -184,11 +184,9 @@ def build_digest_markdown(
                 lines.append(f"- {link}{src_str}")
             lines.append("")
 
-    llm_hot = cfg.get("hot_news_entries")
-    if llm_hot:
-        hot_items = _group_by_domain(llm_hot)
-    else:
-        hot_items = _filter_hot_news(categorized, cfg)
+    # Hot News: data-driven from coverage_meta (num_sources / coverage_percentile),
+    # not from LLM's unreliable "judgment" of what's hot.
+    hot_items = _filter_hot_news(categorized, cfg)
     if hot_items:
         lines.append("## Hot News")
         lines.append("")
@@ -419,6 +417,18 @@ def _add_hot_item(
     lines.append(bullet)
     if tldr:
         lines.append(f"  {tldr}")
+
+    # "Why ranked here" — mirrors the web UI card's score breakdown
+    breakdown = item.get("score_breakdown") or {}
+    signals = sorted(breakdown.items(), key=lambda x: -x[1])
+    positive_signals = [(k, v) for k, v in signals if v > 0]
+    if positive_signals:
+        sig_str = "; ".join(f"{k} +{v}" for k, v in positive_signals)
+        lines.append(f"  *Why: {sig_str}*")
+    else:
+        relevance = (item.get("relevance_to_you") or "").strip()
+        if relevance:
+            lines.append(f"  *Why: {relevance}*")
     lines.append("")
 
 
