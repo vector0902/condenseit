@@ -442,12 +442,10 @@ def _format_item(
     cov_str = f" ({n} occurrences)" if show and n > 1 else ""
 
     out: list[str] = []
-    desc = ""
     if tldr:
-        desc = f" -- {tldr}"
-    out.append(f"- **{link}**{cov_str}{desc}")
+        out.append(f"- **{link}**{cov_str} -- {tldr}")
+    else:
+        out.append(f"- **{link}**{cov_str}")
     if source:
         out.append(f"  _via {source}_")
-    if summary:
-        out.append(f"  {summary}")
     return out
