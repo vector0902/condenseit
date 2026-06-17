@@ -621,6 +621,26 @@ class DigestPipeline:
                 else:
                     categorized.setdefault(category, []).append(entry)
 
+            # Write progressive partial digest (Phase 1 done, Phase 2 pending)
+            if categorized:
+                partial_md = self.summarizer.generate_digest(
+                    categorized,
+                    changes,
+                    video_summaries or None,
+                    coverage_config={
+                        "show_in_digest": rel.coverage_show_in_digest,
+                        "hot_news_min_percentile": rel.hot_news_min_percentile,
+                        "hot_news_top_n": rel.hot_news_top_n,
+                        "min_sources_pct": rel.coverage_min_sources_pct,
+                        "initial_keywords": keywords,
+                    },
+                )
+                out_dir = resolve_output_path(self.config)
+                stamp = datetime.now(UTC).strftime("%Y-%m-%d_%H%M")
+                (out_dir / f"digest_{stamp}.md").write_text(partial_md, encoding="utf-8")
+                (out_dir / "latest.md").write_text(partial_md, encoding="utf-8")
+                logger.info("Partial digest written (Phase 1 done, waiting for Phase 2)")
+
             # Phase 2: one final LLM call for overall aggregation
             all_entries = [e for cat_list in categorized.values() for e in cat_list]
             aggregated = None
