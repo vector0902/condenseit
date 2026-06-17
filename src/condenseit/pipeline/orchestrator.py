@@ -623,8 +623,10 @@ class DigestPipeline:
 
             rel = self.config.relevance
             cfg = self.config
-            # Apply aggregation result: priority order
+            # Apply aggregation result: topic groups, hot news, priority order
             overview_text = ""
+            topic_groups: dict[str, list[dict[str, Any]]] = {}
+            hot_entries: list[dict[str, Any]] = []
             if aggregated:
                 overview_text = aggregated.get("overview", "") or ""
                 priority_order = aggregated.get("priority_order") or []
@@ -632,6 +634,17 @@ class DigestPipeline:
                     for rank_idx, entry_idx in enumerate(priority_order):
                         if entry_idx < len(all_entries):
                             all_entries[entry_idx]["preference_score"] = len(priority_order) - rank_idx
+                # Resolve topic_groups indices to actual entry dicts
+                raw_groups = aggregated.get("topic_groups") or {}
+                if raw_groups and all_entries:
+                    for keyword, indices in raw_groups.items():
+                        resolved = [all_entries[i] for i in indices if i < len(all_entries)]
+                        if resolved:
+                            topic_groups[keyword] = resolved
+                # Resolve hot_news indices to actual entry dicts
+                raw_hot = aggregated.get("hot_news") or []
+                if raw_hot and all_entries:
+                    hot_entries = [all_entries[i] for i in raw_hot if i < len(all_entries)]
 
             self.digest_md = self.summarizer.generate_digest(
                 categorized,
@@ -644,6 +657,8 @@ class DigestPipeline:
                     "min_sources_pct": rel.coverage_min_sources_pct,
                     "initial_keywords": rel.initial_keywords,
                     "overview": overview_text,
+                    "topic_groups": topic_groups,
+                    "hot_news_entries": hot_entries,
                 },
             )
         else:

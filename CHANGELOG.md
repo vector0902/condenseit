@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Digest output improvements**: Three-layer info-reduction digest now uses LLM aggregate `topic_groups` and `hot_news` (instead of discarding them). Keywords section merges similar topics via synonym map (e.g., "ai agent 架构" + "agent评测" → "AI Agent"). Hot News and Digests sections grouped by semantic domain field (AI/大模型, AI Agent, 云服务/部署, 开源/社区, 硬件/系统, etc.) instead of raw RSS category. Occurrence counts shown prominently `**(N occurrences, M sources)**`.  Affected: `format.py`, `orchestrator.py`.
+
 - **Digest summarization progress (m/n)**: Pipeline now logs `Summarized X/Y articles` after each article completes, visible in docker logs during LLM summarization phase. Affected: `orchestrator.py` `_safe_summarize` loop.
 - **Docker build cache optimization**: Dockerfile layers restructured to separate dependency installation from source code COPY. `docker-compose.yml` adds `pip_cache` and `frontend_node_modules` named volumes for pip/npm cache persistence. `cache_from` references in build config for BuildKit cache reuse. New `build-cache.sh` script for local cache export/import.
 

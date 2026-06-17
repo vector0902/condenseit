@@ -1,5 +1,34 @@
 # Progress
 
+## 2026-06-17
+
+### Digest 输出 3 层降维改造
+
+**问题**: 之前 digest 输出存在以下问题：
+1. 关键词碎片化：60+ 组关键词（每篇文章 3 个 topic 直接作为关键词组）
+2. LLM aggregate 的 `topic_groups` 和 `hot_news` 被计算后直接丢弃，未使用
+3. Hot News / Digests 仅按 RSS 原始 category 分组（"General"），无语义领域分组
+4. 覆盖度计数不明显
+
+**改动**:
+1. `format.py`:
+   - 新增 `_KEYWORD_SYNONYMS` 同义词映射表（~70 条规则），将类似主题合并为规范关键词组
+   - 新增 `_merge_keyword()` 使用同义词映射
+   - 新增 `_keywords_from_topic_groups()` 处理 LLM aggregate 返回的 topic_groups
+   - 新增 `_DOMAIN_RULES` 语义领域定义（11 个领域），包含 AI/大模型、AI Agent、云服务/部署、开源/社区等
+   - 新增 `_assign_domain()` 基于 topics/title/tldr 智能分配领域
+   - 新增 `_group_by_domain()` 将条目按领域分组
+   - 新增 `_all_articles()` 展平 categorized dict
+   - `build_digest_markdown()` 优先使用 topic_groups（LLM aggregate）构建关键词索引；支持 hot_news_entries
+   - 无 topic_groups 时 fallback 到 per-article topics + 同义词合并
+   - `_add_hot_item()` 覆盖度计数加粗显示 `**(N occurrences, M sources)**`
+   - Digests 区在有 topic_groups 时按语义领域分组
+
+2. `orchestrator.py`:
+   - 解析 LLM aggregate 返回的 topic_groups（index → entry dict）
+   - 解析 hot_news indices → hot_entries
+   - 传入 coverage_config 供 format.py 使用
+
 ## 2026-06-12
 
 ### 问题排查
