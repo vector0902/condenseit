@@ -100,6 +100,15 @@ class RSSCollector:
         h = self._cache_short_hash(url)
         return self._cache_dir / f"{h}.xml", self._cache_dir / f"{h}.meta.json"
 
+    @staticmethod
+    def _stale_cleanup(*paths: Path) -> None:
+        """Remove stale cache files silently."""
+        for p in paths:
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     def _cached_read(self, url: str) -> str | None:
         """Return cached feed XML if within TTL, or None to force re-fetch."""
         if not self._cache_enabled or self._force_refresh:
@@ -113,8 +122,9 @@ class RSSCollector:
             if datetime.now(UTC) - cached_at.replace(tzinfo=UTC) < self._cache_ttl:
                 logger.info("Feed cache HIT: %s", url)
                 return xml_path.read_text(encoding="utf-8")
+            self._stale_cleanup(xml_path, meta_path)
         except (OSError, json.JSONDecodeError, KeyError, ValueError):
-            pass
+            self._stale_cleanup(xml_path, meta_path)
         return None
 
     def _cached_write(self, url: str, text: str, etag: str = "", last_modified: str = "") -> None:
@@ -158,8 +168,9 @@ class RSSCollector:
             if datetime.now(UTC) - cached_at.replace(tzinfo=UTC) < self._cache_ttl:
                 logger.info("Article cache HIT: %s", url)
                 return meta["text"], meta.get("image_url")
+            self._stale_cleanup(path)
         except (OSError, json.JSONDecodeError, KeyError, ValueError):
-            pass
+            self._stale_cleanup(path)
         return None
 
     def _article_cached_write(self, url: str, text: str, image_url: str | None = None) -> None:
