@@ -1,5 +1,6 @@
 """Main digest pipeline orchestration."""
 
+import collections
 import json
 import logging
 import math
@@ -739,6 +740,12 @@ class DigestPipeline:
             "model": self.summarizer.model_name,
             "dry_run": dry_run,
             "cost_usd": 0.0,
+            "sources_detail": [
+                {"name": name, "count": count}
+                for name, count in collections.Counter(
+                    a.get("source", "Unknown") for a in ranked
+                ).most_common()
+            ],
             "digest_items": digest_items,
         }
         self._save_outputs()

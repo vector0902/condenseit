@@ -66,13 +66,22 @@ def run(
             ),
         )
 
+    sources_detail = stats.get("sources_detail", [])
+    sources_lines = "\n".join(
+        f"  {s['name']}: {s['count']}" for s in sources_detail
+    ) if sources_detail else ""
+    footer = (
+        f"Digest complete.\n"
+        f"Articles: {stats['articles_count']}\n"
+        f"Videos: {stats.get('videos_count', 0)}\n"
+        f"Time: {stats['processing_time']}\n"
+        f"Model: {stats['model']}"
+    )
+    if sources_lines:
+        footer += f"\n\nSources:\n{sources_lines}"
     console.print(
         Panel(
-            f"Digest complete.\n"
-            f"Articles: {stats['articles_count']}\n"
-            f"Videos: {stats.get('videos_count', 0)}\n"
-            f"Time: {stats['processing_time']}\n"
-            f"Model: {stats['model']}",
+            footer,
             title="CondenseIt",
             style="green",
         ),
