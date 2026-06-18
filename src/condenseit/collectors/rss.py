@@ -111,7 +111,7 @@ class RSSCollector:
             meta: dict[str, Any] = json.loads(meta_path.read_text(encoding="utf-8"))
             cached_at = datetime.fromisoformat(meta["cached_at"])
             if datetime.now(UTC) - cached_at.replace(tzinfo=UTC) < self._cache_ttl:
-                logger.debug("Feed cache HIT: %s", url)
+                logger.info("Feed cache HIT: %s", url)
                 return xml_path.read_text(encoding="utf-8")
         except (OSError, json.JSONDecodeError, KeyError, ValueError):
             pass
@@ -132,7 +132,51 @@ class RSSCollector:
             }),
             encoding="utf-8",
         )
-        logger.debug("Feed cache WRITE: %s", url)
+        logger.info("Feed cache WRITE: %s", url)
+
+    # ------------------------------------------------------------------
+    # Article page cache (full text extracted by trafilatura)
+    # ------------------------------------------------------------------
+    @property
+    def _article_cache_dir(self) -> Path:
+        return self._cache_dir / "articles"
+
+    def _article_cache_path(self, url: str) -> Path:
+        h = self._cache_short_hash(url)
+        return self._article_cache_dir / f"{h}.json"
+
+    def _article_cached_read(self, url: str) -> tuple[str, str | None] | None:
+        """Return (extracted_text, image_url_or_None) if cache hit within TTL."""
+        if not self._cache_enabled or self._force_refresh:
+            return None
+        path = self._article_cache_path(url)
+        if not path.is_file():
+            return None
+        try:
+            meta: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+            cached_at = datetime.fromisoformat(meta["cached_at"])
+            if datetime.now(UTC) - cached_at.replace(tzinfo=UTC) < self._cache_ttl:
+                logger.info("Article cache HIT: %s", url)
+                return meta["text"], meta.get("image_url")
+        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            pass
+        return None
+
+    def _article_cached_write(self, url: str, text: str, image_url: str | None = None) -> None:
+        if not self._cache_enabled:
+            return
+        self._article_cache_dir.mkdir(parents=True, exist_ok=True)
+        path = self._article_cache_path(url)
+        path.write_text(
+            json.dumps({
+                "url": url,
+                "cached_at": datetime.now(UTC).isoformat(),
+                "text": text,
+                "image_url": image_url,
+            }),
+            encoding="utf-8",
+        )
+        logger.info("Article cache WRITE: %s", url)
 
     def collect_feed_results(
         self,
@@ -285,7 +329,12 @@ class RSSCollector:
                 url,
             )
 
-        # --- Step 2: fetch article page ---
+        # --- Step 2: check article page cache ---
+        cached = self._article_cached_read(url)
+        if cached is not None:
+            return cached
+
+        # --- Step 3: fetch article page ---
         image_url: str | None = None
         try:
             page = self.client.get(url)
@@ -296,11 +345,12 @@ class RSSCollector:
                 include_comments=False,
             )
             if extracted:
+                self._article_cached_write(url, extracted, image_url)
                 return extracted, image_url
         except Exception as exc:
             logger.debug("article fetch failed for %s: %s", url, exc)
 
-        # --- Step 3: fallback to RSS embed ---
+        # --- Step 4: fallback to RSS embed ---
         return embed_text, image_url
 
     @staticmethod
