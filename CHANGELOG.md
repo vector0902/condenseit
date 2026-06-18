@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Docs**: `docs/llm_config_switching.md` — comprehensive documentation of LLM endpoint switching mechanism: 4 provider modes, 3-layer config priority (YAML → env → DB), runtime config reload behavior, encrypted API key storage, and switch methods.
+
 - **Progressive partial digest output**: After Phase 1 classification completes, pipeline now writes a timestamped partial digest to `digest_<YYYY-MM-DD_HHMM>.md` and updates `latest.md` immediately, before waiting for Phase 2 aggregation. Affected: `orchestrator.py`.
 
 - **Digest output improvements**: Three-layer info-reduction digest now uses LLM aggregate `topic_groups` and `hot_news` (instead of discarding them). Keywords section merges similar topics via synonym map (e.g., "ai agent 架构" + "agent评测" → "AI Agent"). Hot News and Digests sections grouped by semantic domain field (AI/大模型, AI Agent, 云服务/部署, 开源/社区, 硬件/系统, etc.) instead of raw RSS category. Occurrence counts shown prominently `**(N occurrences, M sources)**`.  Affected: `format.py`, `orchestrator.py`.

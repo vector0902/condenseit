@@ -161,6 +161,25 @@ def build_digest_markdown(
         lines.append(overview)
         lines.append("")
 
+    # Track seen article URLs + titles across sections to avoid duplication.
+    seen_keys: set[str] = set()
+
+    def _seen(item: dict[str, Any]) -> str | None:
+        k = item.get("url") or item.get("title") or ""
+        k = str(k).strip()
+        if not k:
+            return None
+        return k
+
+    def _mark_seen(item: dict[str, Any]) -> None:
+        k = _seen(item)
+        if k:
+            seen_keys.add(k)
+
+    def _is_seen(item: dict[str, Any]) -> bool:
+        k = _seen(item)
+        return k is not None and k in seen_keys
+
     # Keywords are user-defined from config (initial_keywords), not AI-invented.
     # Each article appears in at most one keyword group.
     topic_groups = cfg.get("topic_groups")
@@ -176,12 +195,8 @@ def build_digest_markdown(
             count = f" ({len(items)} articles)" if len(items) > 1 else ""
             lines.append(f"### {kw}{count}")
             for item in items:
-                title = (item.get("title") or "Untitled").strip()
-                url = (item.get("url") or "").strip()
-                source = (item.get("source") or "").strip()
-                link = f"[{title}]({url})" if url else title
-                src_str = f" (from {source})" if source else ""
-                lines.append(f"- {link}{src_str}")
+                _mark_seen(item)
+                lines.extend(_digest_line(item, cfg))
             lines.append("")
 
     # Hot News: data-driven from coverage_meta (num_sources / coverage_percentile),
@@ -195,7 +210,10 @@ def build_digest_markdown(
                 continue
             lines.append(f"### {cat}")
             for item in items:
-                _add_hot_item(lines, item, cfg)
+                if _is_seen(item):
+                    continue
+                _mark_seen(item)
+                lines.extend(_digest_line(item, cfg))
             lines.append("")
 
     lines.append("## Digests")
@@ -208,6 +226,8 @@ def build_digest_markdown(
         lines.append(f"### {category}")
         lines.append("")
         for item in items:
+            if _is_seen(item):
+                continue
             lines.extend(_format_item(item, cfg))
         lines.append("")
 
@@ -229,6 +249,21 @@ def build_digest_markdown(
 
     if len(lines) <= 4:
         lines.append("_No new items in this run._")
+
+    # Per-source article count summary
+    all_articles = _all_articles(categorized, videos)
+    if all_articles:
+        from collections import Counter
+        src_counts = Counter(
+            str(a.get("source", "Unknown")) for a in all_articles
+        ).most_common()
+        lines.append("---")
+        lines.append("")
+        lines.append("## Sources")
+        lines.append("")
+        for name, count in src_counts:
+            lines.append(f"- {name}: {count}")
+        lines.append("")
 
     return "\n".join(lines).strip() + "\n"
 
@@ -392,44 +427,34 @@ def _sort_by_coverage(
     )
 
 
-def _add_hot_item(
-    lines: list[str],
+# ---- Shared item line for Keywords / Hot News (1-2 sentence digest) -------
+
+
+def _digest_line(
     item: dict[str, Any],
-    cfg: dict,
-) -> None:
-    show = cfg.get("show_in_digest", True)
+    cfg: dict | None = None,
+) -> list[str]:
+    """Return a consistent 1-2 line digest for Keywords and Hot News sections."""
     title = (item.get("title") or "Untitled").strip()
     url = (item.get("url") or "").strip()
+    tldr = (item.get("tldr") or "").strip()
+    source = (item.get("source") or "").strip()
     meta = item.get("coverage_meta", {})
     n = meta.get("num_merged", 1)
     src_count = meta.get("num_sources", 1)
-    sources = meta.get("sources", [])
-    tldr = (item.get("tldr") or "").strip()
+    show = (cfg or {}).get("show_in_digest", True)
 
     link = f"[{title}]({url})" if url else title
-    if show and n > 1:
-        coverage_tag = f" **({n} occurrences, {src_count} sources)**"
-    else:
-        coverage_tag = ""
-    sources_str = f" -- via {', '.join(sources[:4])}" if show and sources else ""
+    tag = f" ({n} occurrences, {src_count} sources)" if show and n > 1 else ""
 
-    bullet = f"- **{link}**{coverage_tag}{sources_str}"
-    lines.append(bullet)
+    out: list[str] = []
     if tldr:
-        lines.append(f"  {tldr}")
-
-    # "Why ranked here" — mirrors the web UI card's score breakdown
-    breakdown = item.get("score_breakdown") or {}
-    signals = sorted(breakdown.items(), key=lambda x: -x[1])
-    positive_signals = [(k, v) for k, v in signals if v > 0]
-    if positive_signals:
-        sig_str = "; ".join(f"{k} +{v}" for k, v in positive_signals)
-        lines.append(f"  *Why: {sig_str}*")
+        out.append(f"- **{link}**{tag} -- {tldr}")
     else:
-        relevance = (item.get("relevance_to_you") or "").strip()
-        if relevance:
-            lines.append(f"  *Why: {relevance}*")
-    lines.append("")
+        out.append(f"- **{link}**{tag}")
+    if source:
+        out.append(f"  _via {source}_")
+    return out
 
 
 # ---- Per-item formatting --------------------------------------------------
@@ -459,3 +484,4 @@ def _format_item(
     if source:
         out.append(f"  _via {source}_")
     return out
+

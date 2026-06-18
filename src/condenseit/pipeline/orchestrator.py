@@ -1221,6 +1221,20 @@ class DigestPipeline:
             lines.append("\n## Website changes\n")
             for c in changes:
                 lines.append(f"- {c['status']}: {c['url']}")
+
+        # Per-source summary
+        src_counts = collections.Counter(
+            str(a.get("source", "Unknown")) for a in articles
+        ).most_common()
+        if src_counts:
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+            lines.append("## Sources")
+            lines.append("")
+            for name, count in src_counts:
+                lines.append(f"- {name}: {count}")
+
         return "\n".join(lines)
 
     def _save_outputs(self) -> None:
