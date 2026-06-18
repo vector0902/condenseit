@@ -66,6 +66,15 @@ class OpenRouterSummarizer(SummarizerProvider):
             "X-Title": "CondenseIt",
         }
         resp: httpx.Response | None = None
+        # Log prompt size before sending
+        total_bytes = sum(len(str(msg.get("content", "")).encode("utf-8")) for msg in messages)
+        logger.info(
+            "[LLM] %s -> %s (prompt: %d bytes, max_output: %d)",
+            self.model,
+            OPENROUTER_CHAT_URL,
+            total_bytes,
+            max_tokens,
+        )
         with httpx.Client(timeout=self.http_timeout) as client:
             for attempt in range(len(_RETRY_WAITS) + 1):
                 resp = client.post(
@@ -130,7 +139,7 @@ class OpenRouterSummarizer(SummarizerProvider):
                 ),
             },
         ]
-        raw = self._chat(messages, max_tokens=1400)
+        raw = self._chat(messages, max_tokens=self.max_tokens)
         return parse_summary_response(raw)
 
     def generate_digest(

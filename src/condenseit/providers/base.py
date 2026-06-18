@@ -659,7 +659,6 @@ class SummarizerProvider(ABC):
     def batch_summarize(
         self,
         articles: list[dict[str, Any]],
-        max_tokens: int = 8192,
     ) -> list[ArticleSummary]:
         """Summarize multiple articles in a single LLM call.
 
@@ -672,7 +671,6 @@ class SummarizerProvider(ABC):
         self,
         entries: list[dict[str, Any]],
         initial_keywords: dict[str, list[str]] | None = None,
-        max_tokens: int = 4096,
         digest_language: str = "English",
     ) -> dict | None:
         """One LLM call to produce an overall digest overview.

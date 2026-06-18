@@ -668,7 +668,6 @@ class DigestPipeline:
                     aggregated = self.summarizer.aggregate_digest(
                         all_entries,
                         initial_keywords=self.config.relevance.initial_keywords,
-                        max_tokens=8192,
                         digest_language=digest_lang_name,
                     )
                     if aggregated:

@@ -193,6 +193,15 @@ def _call_openrouter(
         "HTTP-Referer": "https://github.com/condenseit/condenseit",
         "X-Title": "CondenseIt",
     }
+    # Log prompt size before sending
+    total_bytes = len(prompt.encode("utf-8")) + len(payload.get("messages", [{}])[0].get("content", "").encode("utf-8"))
+    logger.info(
+        "[LLM] %s -> %s (prompt: %d bytes, max_output: %d)",
+        model,
+        OPENROUTER_CHAT_URL,
+        total_bytes,
+        payload.get("max_tokens", 2500),
+    )
     with httpx.Client(timeout=http_timeout) as client:
         resp = client.post(
             OPENROUTER_CHAT_URL,
@@ -250,6 +259,15 @@ def _call_openai_compat(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    # Log prompt size before sending
+    total_bytes = len(prompt.encode("utf-8")) + len(payload.get("messages", [{}])[0].get("content", "").encode("utf-8"))
+    logger.info(
+        "[LLM] %s -> %s (prompt: %d bytes, max_output: %d)",
+        model,
+        f"{base_url}/chat/completions",
+        total_bytes,
+        payload.get("max_tokens", 2500),
+    )
     with httpx.Client(timeout=http_timeout) as client:
         resp = client.post(
             f"{base_url}/chat/completions",
@@ -267,6 +285,14 @@ def _call_openai_compat(
 def _call_ollama(prompt: str, model: str, host: str, http_timeout: float = 120.0) -> str:
 
     host = host.rstrip("/")
+    # Log prompt size before sending
+    total_bytes = len(prompt.encode("utf-8"))
+    logger.info(
+        "[LLM] %s -> %s (prompt: %d bytes, max_output: 2500)",
+        model,
+        f"{host}/api/generate",
+        total_bytes,
+    )
     with httpx.Client(timeout=http_timeout) as client:
         resp = client.post(
             f"{host}/api/generate",

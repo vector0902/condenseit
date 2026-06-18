@@ -82,6 +82,16 @@ class OpenAISummarizer(SummarizerProvider):
         for msg in messages:
             log_llm_message(conv_id, msg["role"], msg.get("content", ""))
 
+         # Log prompt size before sending
+        total_bytes = sum(len(str(msg.get("content", "")).encode("utf-8")) for msg in messages)
+        logger.info(
+            "[LLM] %s -> %s (prompt: %d bytes, max_output: %d)",
+            self.model,
+            url,
+            total_bytes,
+            max_tokens,
+        )
+
         resp: httpx.Response | None = None
         with httpx.Client(timeout=self.http_timeout) as client:
             for attempt in range(len(_RETRY_WAITS) + 1):
@@ -158,7 +168,6 @@ class OpenAISummarizer(SummarizerProvider):
     def batch_summarize(
         self,
         articles: list[dict[str, Any]],
-        max_tokens: int = 8192,
     ) -> list[ArticleSummary]:
         if not articles:
             return []
@@ -174,7 +183,7 @@ class OpenAISummarizer(SummarizerProvider):
             {"role": "system", "content": build_chat_system_prompt(language)},
             {"role": "user", "content": user_prompt},
         ]
-        raw = self._chat(messages, max_tokens=max_tokens)
+        raw = self._chat(messages, max_tokens=self.max_tokens)
         results = parse_batch_summarize_response(raw, len(articles))
         # Fallback: if too many results are empty, retry per-article
         filled = sum(1 for r in results if r.get("tldr"))
@@ -190,7 +199,6 @@ class OpenAISummarizer(SummarizerProvider):
         self,
         entries: list[dict[str, Any]],
         initial_keywords: dict[str, list[str]] | None = None,
-        max_tokens: int = 4096,
         digest_language: str = "Chinese",
     ) -> dict | None:
         if not entries:
@@ -204,7 +212,7 @@ class OpenAISummarizer(SummarizerProvider):
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        raw = self._chat(messages, max_tokens=max_tokens)
+        raw = self._chat(messages, max_tokens=self.max_tokens)
         parsed = parse_aggregate_digest_response(raw)
         return dict(parsed) if parsed else None
 

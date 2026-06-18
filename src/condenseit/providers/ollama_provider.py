@@ -70,6 +70,7 @@ class OllamaSummarizer(SummarizerProvider):
         self.digest_language = digest_language
         self.num_predict = num_predict
         self.http_timeout = http_timeout
+        self.max_tokens = num_predict
 
     @property
     def model_name(self) -> str:
