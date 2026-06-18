@@ -1,30 +1,34 @@
 services:
+  # Base image: system + Python dependencies (rarely changes)
+  base:
+    image: condenseit:base
+    build:
+      context: .
+      dockerfile: docker-base/Dockerfile
+
+  # App image: source code only (builds on top of base)
   app:
-    # image: ${CONDENSEIT_IMAGE:-ghcr.io/wildlifechorus/condenseit:${CONDENSEIT_IMAGE_TAG:-latest}}
-    image: docker.cnb.cool/fjyaxax/condenseit:oc0616
+    image: condenseit:app
     build:
       context: .
       dockerfile: Dockerfile
       cache_from:
         - docker.cnb.cool/fjyaxax/condenseit:latest
         - type=local,src=/tmp/docker-cache
-    #container_name: condenseit-app
+    depends_on:
+      - base
     ports:
       - "8166:8899"
     env_file:
-      # - .env
       - ../condenseit_data/.env
     environment:
       CONDENSEIT_CONFIG: /app/config.yaml
       CONDENSEIT_DATA_DIR: /app/data
       CONDENSEIT_FRONTEND_DIST: /app/frontend/dist
-      # TZ: UTC
       TZ: CST
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # - ./config.yaml:/app/config.yaml:ro
-      # - ./data:/app/data
       - ../condenseit_data/config.yaml:/app/config.yaml:ro
       - ../condenseit_data/data:/app/data
       - pip_cache:/root/.cache/pip
