@@ -224,6 +224,11 @@ class VpsConfig(BaseModel):
     digest_url: str = ""
 
 
+class FeedCacheConfig(BaseModel):
+    enabled: bool = True
+    ttl_minutes: int = 60
+
+
 class ClusterDigestConfig(BaseModel):
     enabled: bool = False
     min_cluster_size: int = 2
@@ -268,6 +273,7 @@ class AppConfig(BaseModel):
     youtube_channels: list[YouTubeChannelConfig] = Field(default_factory=list)
     watch_urls: list[WatchUrlConfig] = Field(default_factory=list)
     relevance: RelevanceConfig = Field(default_factory=RelevanceConfig)
+    feed_cache: FeedCacheConfig = Field(default_factory=FeedCacheConfig)
     cluster_digest: ClusterDigestConfig = Field(default_factory=ClusterDigestConfig)
     youtube_transcription: YouTubeTranscriptionConfig = Field(
         default_factory=YouTubeTranscriptionConfig

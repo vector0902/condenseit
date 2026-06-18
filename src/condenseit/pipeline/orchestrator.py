@@ -22,7 +22,7 @@ from condenseit.collectors.reddit import RedditCollector
 from condenseit.collectors.rss import RSSCollector
 from condenseit.collectors.website import check_website_changes_with_health
 from condenseit.collectors.youtube import YouTubeCollector
-from condenseit.config import AppConfig, load_config, resolve_output_path
+from condenseit.config import AppConfig, get_data_dir, load_config, resolve_output_path
 from condenseit.learning.embeddings import (
     build_embedding_provider,
     cosine_similarity,
@@ -125,8 +125,16 @@ def _apply_source_rules(
 
 
 class DigestPipeline:
-    def __init__(self, config_path: str | None = None) -> None:
+    def __init__(
+        self,
+        config_path: str | None = None,
+        *,
+        feed_cache_enabled: bool | None = None,
+        feed_force_refresh: bool = False,
+    ) -> None:
         self.config: AppConfig = load_config(config_path)
+        self._feed_cache_enabled = feed_cache_enabled
+        self._feed_force_refresh = feed_force_refresh
         self.store = ContentStore()
         self.config = apply_db_settings(self.config, self.store)
         self.sources = SourceRegistry(self.store)
@@ -219,7 +227,14 @@ class DigestPipeline:
         github_releases = self.sources.github_releases_for_config()
         podcasts = self.sources.podcast_sources_for_config()
 
-        rss = RSSCollector(feeds)
+        cache_cfg = self.config.feed_cache
+        rss = RSSCollector(
+            feeds,
+            cache_enabled=self._feed_cache_enabled if self._feed_cache_enabled is not None else cache_cfg.enabled,
+            cache_dir=get_data_dir() / "feed_cache",
+            cache_ttl_minutes=cache_cfg.ttl_minutes,
+            force_refresh=self._feed_force_refresh,
+        )
         total_feeds = len(feeds)
         logger.info("Collecting RSS feeds (%d total)", total_feeds)
         articles: list[dict[str, Any]] = []

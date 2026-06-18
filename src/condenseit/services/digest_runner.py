@@ -15,6 +15,8 @@ def execute_digest(
     *,
     dry_run: bool = False,
     skip_deploy: bool = False,
+    feed_cache_enabled: bool | None = None,
+    feed_force_refresh: bool = False,
 ) -> dict[str, Any]:
     """Collect, summarize, save digest; return stats plus optional post-run info.
 
@@ -27,7 +29,11 @@ def execute_digest(
     cfg: AppConfig = load_config(config_path)
     needs_ollama = not dry_run and cfg.llm.provider in ("ollama", "fallback")
 
-    with DigestPipeline(config_path) as pipeline:
+    with DigestPipeline(
+        config_path,
+        feed_cache_enabled=feed_cache_enabled,
+        feed_force_refresh=feed_force_refresh,
+    ) as pipeline:
         if dry_run:
             stats = pipeline.run(dry_run=True)
         elif needs_ollama:

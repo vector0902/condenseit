@@ -1,9 +1,13 @@
-"""RSS and Atom feed collection."""
+"""RSS and Atom feed collection with optional file-based caching."""
 
+import hashlib
+import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -67,7 +71,15 @@ class CollectedArticle:
 
 
 class RSSCollector:
-    def __init__(self, feeds: list[FeedConfig]) -> None:
+    def __init__(
+        self,
+        feeds: list[FeedConfig],
+        *,
+        cache_enabled: bool = False,
+        cache_dir: str | Path = "",
+        cache_ttl_minutes: int = 60,
+        force_refresh: bool = False,
+    ) -> None:
         self.feeds = feeds
         self.fetch_headers = digest_fetch_headers()
         self.client = httpx.Client(
@@ -75,6 +87,52 @@ class RSSCollector:
             follow_redirects=True,
             headers=self.fetch_headers,
         )
+        self._cache_enabled = cache_enabled
+        self._cache_dir = Path(cache_dir) if cache_dir else Path()
+        self._cache_ttl = timedelta(minutes=cache_ttl_minutes)
+        self._force_refresh = force_refresh
+
+    @staticmethod
+    def _cache_short_hash(url: str) -> str:
+        return hashlib.sha256(url.encode()).hexdigest()[:16]
+
+    def _cache_paths(self, url: str) -> tuple[Path, Path]:
+        h = self._cache_short_hash(url)
+        return self._cache_dir / f"{h}.xml", self._cache_dir / f"{h}.meta.json"
+
+    def _cached_read(self, url: str) -> str | None:
+        """Return cached feed XML if within TTL, or None to force re-fetch."""
+        if not self._cache_enabled or self._force_refresh:
+            return None
+        xml_path, meta_path = self._cache_paths(url)
+        if not xml_path.is_file() or not meta_path.is_file():
+            return None
+        try:
+            meta: dict[str, Any] = json.loads(meta_path.read_text(encoding="utf-8"))
+            cached_at = datetime.fromisoformat(meta["cached_at"])
+            if datetime.now(UTC) - cached_at.replace(tzinfo=UTC) < self._cache_ttl:
+                logger.debug("Feed cache HIT: %s", url)
+                return xml_path.read_text(encoding="utf-8")
+        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            pass
+        return None
+
+    def _cached_write(self, url: str, text: str, etag: str = "", last_modified: str = "") -> None:
+        if not self._cache_enabled:
+            return
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        xml_path, meta_path = self._cache_paths(url)
+        xml_path.write_text(text, encoding="utf-8")
+        meta_path.write_text(
+            json.dumps({
+                "url": url,
+                "cached_at": datetime.now(UTC).isoformat(),
+                "etag": etag,
+                "last_modified": last_modified,
+            }),
+            encoding="utf-8",
+        )
+        logger.debug("Feed cache WRITE: %s", url)
 
     def collect_feed_results(
         self,
@@ -127,6 +185,10 @@ class RSSCollector:
         return items
 
     def _fetch_feed_text(self, url: str) -> str:
+        cached = self._cached_read(url)
+        if cached is not None:
+            return cached
+
         response = self.client.get(url)
         try:
             response.raise_for_status()
@@ -134,6 +196,13 @@ class RSSCollector:
             if exc.response.status_code != 403:
                 raise
             return self._fetch_feed_text_with_urllib(url, exc)
+
+        self._cached_write(
+            url,
+            response.text,
+            etag=response.headers.get("etag", ""),
+            last_modified=response.headers.get("last-modified", ""),
+        )
         return response.text
 
     def _fetch_feed_text_with_urllib(
@@ -149,7 +218,9 @@ class RSSCollector:
                 encoding = response.headers.get_content_charset() or "utf-8"
         except (OSError, URLError) as exc:
             raise original_exc from exc
-        return body.decode(encoding, errors="replace")
+        text = body.decode(encoding, errors="replace")
+        self._cached_write(url, text)
+        return text
 
     # Minimum character threshold for RSS embed content to be considered
     # "full-text". Feeds like wechat2rss already embed full articles in

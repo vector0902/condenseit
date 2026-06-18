@@ -102,6 +102,15 @@ exclude_keywords:
   - "promotional campaign"
 #  - "sponsored"
 
+# ---------------------------------------------------------------------------
+# RSS feed caching (file-based, mainly for testing)
+# When enabled, fetched RSS XML is stored locally so repeated runs do not
+# hit the network. Cache files live in <data_dir>/feed_cache/.
+# ---------------------------------------------------------------------------
+feed_cache:
+  enabled: true  # default; use --no-cache at runtime to disable
+  ttl_minutes: 60
+
 relevance:
   # Minimum ratings before preference learning activates.
   min_ratings_for_learning: 5

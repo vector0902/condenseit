@@ -27,13 +27,20 @@ RUN apt-get update \
     libxslt1.1 \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files AND source code (pip needs src/ to install)
+# Copy only pyproject.toml – rarely changes
 COPY pyproject.toml README.md ./
+
+# Create a minimal placeholder so pip can resolve & cache ALL dependencies
+# This layer is reused as long as pyproject.toml stays the same.
+RUN mkdir -p src/condenseit && touch src/condenseit/__init__.py && \
+    pip install --no-cache-dir . && \
+    rm -rf src/
+
+# Copy the actual source code (changes on every edit)
 COPY src ./src
 
-# Install Python dependencies (cached unless pyproject.toml or src/ changes)
-# pip cache is mounted as volume in docker-compose.yml at /root/.cache/pip
-RUN pip install .
+# Install only the package wheel, no dependency re-resolution
+RUN pip install --no-cache-dir --no-deps .
 
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist

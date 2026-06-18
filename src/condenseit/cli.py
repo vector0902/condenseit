@@ -33,11 +33,15 @@ def cli() -> None:
 @click.option("--dry-run", is_flag=True, help="Collect without LLM.")
 @click.option("--no-deploy", is_flag=True, help="Skip VPS rsync.")
 @click.option("--config", "-c", default=None, help="Path to config.yaml.")
+@click.option("--no-cache", "no_cache", is_flag=True, help="Disable RSS feed file caching.")
+@click.option("--force-refresh", is_flag=True, help="Force re-fetch all RSS feeds (skip cache).")
 @click.option("-v", "--verbose", is_flag=True)
 def run(
     dry_run: bool,
     no_deploy: bool,
     config: str | None,
+    no_cache: bool,
+    force_refresh: bool,
     verbose: bool,
 ) -> None:
     """Run the digest pipeline once."""
@@ -48,6 +52,8 @@ def run(
             config,
             dry_run=dry_run,
             skip_deploy=no_deploy,
+            feed_cache_enabled=False if no_cache else None,
+            feed_force_refresh=force_refresh,
         )
         stats = result["stats"]
         post = result.get("post")
