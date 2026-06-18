@@ -46,6 +46,12 @@ def _apply_llm_settings(config: AppConfig, store: ContentStore) -> None:
         if val is not None:
             config.llm.openrouter_monthly_budget_usd = val
 
+    http_timeout = store.get_setting("http_timeout", "")
+    if http_timeout:
+        val = parse_int_in_range(http_timeout, "http_timeout", 10, 600)
+        if val is not None:
+            config.llm.http_timeout = val
+
 
 def _apply_schedule_settings(config: AppConfig, store: ContentStore) -> None:
     schedule_raw = store.get_setting("schedule_times", "")

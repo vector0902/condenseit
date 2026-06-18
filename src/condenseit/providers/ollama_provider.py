@@ -61,6 +61,7 @@ class OllamaSummarizer(SummarizerProvider):
         max_summary_paragraphs: int = 5,
         digest_language: str = "en",
         num_predict: int = 4096,
+        http_timeout: float = 120.0,
     ) -> None:
         self.model = model
         self.client = ollama.Client(host=host)
@@ -68,6 +69,7 @@ class OllamaSummarizer(SummarizerProvider):
         self.max_summary_paragraphs = max_summary_paragraphs
         self.digest_language = digest_language
         self.num_predict = num_predict
+        self.http_timeout = http_timeout
 
     @property
     def model_name(self) -> str:

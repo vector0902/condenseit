@@ -170,6 +170,7 @@ def _call_openrouter(
     model: str,
     api_key: str,
     budget: BudgetTracker | None = None,
+    http_timeout: float = 120.0,
 ) -> str:
 
     payload = {
@@ -192,7 +193,7 @@ def _call_openrouter(
         "HTTP-Referer": "https://github.com/condenseit/condenseit",
         "X-Title": "CondenseIt",
     }
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=http_timeout) as client:
         resp = client.post(
             OPENROUTER_CHAT_URL,
             json=payload,
@@ -225,6 +226,7 @@ def _call_openai_compat(
     model: str,
     base_url: str,
     api_key: str = "",
+    http_timeout: float = 120.0,
 ) -> str:
     """Call any OpenAI-compatible /chat/completions endpoint for reranking."""
 
@@ -248,7 +250,7 @@ def _call_openai_compat(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=http_timeout) as client:
         resp = client.post(
             f"{base_url}/chat/completions",
             json=payload,
@@ -262,10 +264,10 @@ def _call_openai_compat(
     return str(choices[0]["message"]["content"]).strip()
 
 
-def _call_ollama(prompt: str, model: str, host: str) -> str:
+def _call_ollama(prompt: str, model: str, host: str, http_timeout: float = 120.0) -> str:
 
     host = host.rstrip("/")
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=http_timeout) as client:
         resp = client.post(
             f"{host}/api/generate",
             json={
@@ -293,6 +295,7 @@ def rerank(
     top_k: int = 30,
     blend: float = 0.4,
     budget: BudgetTracker | None = None,
+    http_timeout: float = 120.0,
 ) -> list[dict[str, Any]]:
     """Reorder articles using a single LLM call, blending LLM scores with classical.
 
@@ -313,13 +316,13 @@ def rerank(
 
     try:
         if api_key:
-            raw = _call_openrouter(prompt, model, api_key, budget=budget)
+            raw = _call_openrouter(prompt, model, api_key, budget=budget, http_timeout=http_timeout)
         elif openai_base_url:
             raw = _call_openai_compat(
-                prompt, model, openai_base_url, api_key=openai_api_key
+                prompt, model, openai_base_url, api_key=openai_api_key, http_timeout=http_timeout
             )
         elif ollama_host:
-            raw = _call_ollama(prompt, model, ollama_host)
+            raw = _call_ollama(prompt, model, ollama_host, http_timeout=http_timeout)
         else:
             return articles
 

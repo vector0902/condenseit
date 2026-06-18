@@ -503,6 +503,7 @@ class DigestPipeline:
                     top_k=self.config.relevance.llm_rerank_top_k,
                     blend=self.config.relevance.llm_rerank_blend,
                     budget=self._ai_budget,
+                    http_timeout=float(self.config.llm.http_timeout),
                 )
                 logger.info("LLM reranker applied (model=%s)", _rerank_model)
 

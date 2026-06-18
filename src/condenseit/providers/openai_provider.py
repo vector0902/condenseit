@@ -45,6 +45,7 @@ class OpenAISummarizer(SummarizerProvider):
         max_summary_paragraphs: int = 5,
         digest_language: str = "en",
         max_tokens: int = 4096,
+        http_timeout: float = 120.0,
     ) -> None:
         self.model = model
         # Normalise: strip trailing slash so we can always append /chat/completions.
@@ -54,6 +55,7 @@ class OpenAISummarizer(SummarizerProvider):
         self.max_summary_paragraphs = max_summary_paragraphs
         self.digest_language = digest_language
         self.max_tokens = max_tokens
+        self.http_timeout = http_timeout
 
     @property
     def model_name(self) -> str:
@@ -81,7 +83,7 @@ class OpenAISummarizer(SummarizerProvider):
             log_llm_message(conv_id, msg["role"], msg.get("content", ""))
 
         resp: httpx.Response | None = None
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=self.http_timeout) as client:
             for attempt in range(len(_RETRY_WAITS) + 1):
                 try:
                     resp = client.post(url, json=payload, headers=headers)

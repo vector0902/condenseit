@@ -31,6 +31,7 @@ def build_summarizer(
             max_summary_paragraphs=max_paragraphs,
             digest_language=config.digest_language,
             num_predict=config.llm.ollama_num_predict,
+            http_timeout=float(config.llm.http_timeout),
         )
 
     if provider == "openai":
@@ -48,6 +49,7 @@ def build_summarizer(
             max_summary_paragraphs=max_paragraphs,
             digest_language=config.digest_language,
             max_tokens=config.llm.openai_max_tokens,
+            http_timeout=float(config.llm.http_timeout),
         )
 
     or_key = keys.get_key("openrouter") or config.llm.openrouter_api_key
@@ -73,6 +75,7 @@ def build_summarizer(
         max_key_takeaways=max_takeaways,
         max_summary_paragraphs=max_paragraphs,
         digest_language=config.digest_language,
+        http_timeout=float(config.llm.http_timeout),
     )
 
     if provider == "openrouter":
@@ -86,6 +89,7 @@ def build_summarizer(
             max_summary_paragraphs=max_paragraphs,
             digest_language=config.digest_language,
             num_predict=config.llm.ollama_num_predict,
+            http_timeout=float(config.llm.http_timeout),
         )
         return FallbackChainProvider(ollama, cloud)
 

@@ -32,6 +32,7 @@ class OpenRouterSummarizer(SummarizerProvider):
         max_key_takeaways: int = 5,
         max_summary_paragraphs: int = 5,
         digest_language: str = "en",
+        http_timeout: float = 120.0,
     ) -> None:
         self.model = model
         self.api_key = api_key
@@ -39,6 +40,7 @@ class OpenRouterSummarizer(SummarizerProvider):
         self.max_key_takeaways = max_key_takeaways
         self.max_summary_paragraphs = max_summary_paragraphs
         self.digest_language = digest_language
+        self.http_timeout = http_timeout
 
     @property
     def model_name(self) -> str:
@@ -64,7 +66,7 @@ class OpenRouterSummarizer(SummarizerProvider):
             "X-Title": "CondenseIt",
         }
         resp: httpx.Response | None = None
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=self.http_timeout) as client:
             for attempt in range(len(_RETRY_WAITS) + 1):
                 resp = client.post(
                     OPENROUTER_CHAT_URL,

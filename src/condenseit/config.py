@@ -211,6 +211,8 @@ class LlmConfig(BaseModel):
     openai_model: str = ""
     openai_max_tokens: int = Field(default=4096, ge=256, le=262144)
     ollama_num_predict: int = Field(default=4096, ge=256, le=262144)
+    # HTTP timeout for LLM API calls (seconds). Default 120.
+    http_timeout: int = Field(default=120, ge=10, le=600)
 
 
 class VpsConfig(BaseModel):
@@ -390,6 +392,16 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     vps_digest_url = os.environ.get("DIGEST_PWA_LIVE_URL", "").strip()
     if vps_digest_url:
         expanded.setdefault("vps", {})["digest_url"] = vps_digest_url
+
+    timeout = os.environ.get("CONDENSEIT_HTTP_TIMEOUT", "").strip()
+    if timeout:
+        try:
+            expanded.setdefault("llm", {})["http_timeout"] = int(timeout)
+        except ValueError:
+            logger.debug(
+                "Ignoring invalid CONDENSEIT_HTTP_TIMEOUT=%r",
+                timeout,
+            )
 
     return AppConfig.model_validate(expanded)
 

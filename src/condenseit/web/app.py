@@ -693,7 +693,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
                         "HTTP-Referer": "https://github.com/condenseit/condenseit",
                         "X-Title": "CondenseIt",
                     },
-                    timeout=60.0,
+                    timeout=float(merged.llm.http_timeout),
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -710,7 +710,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
                         "stream": False,
                         "options": {"temperature": 0.2, "num_predict": 600},
                     },
-                    timeout=120.0,
+                    timeout=float(merged.llm.http_timeout),
                 )
                 resp.raise_for_status()
                 raw = str(resp.json().get("response", "")).strip()
