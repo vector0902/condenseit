@@ -12,9 +12,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      cache_from:
-        - docker.cnb.cool/fjyaxax/condenseit:latest
-        - type=local,src=/tmp/docker-cache
     depends_on:
       - base
 
