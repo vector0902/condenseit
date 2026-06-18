@@ -1,14 +1,14 @@
 services:
   # Base image: system + Python dependencies (rarely changes)
   base:
-    image: condenseit:base
+    image: docker.cnb.cool/fjyaxax/condenseit:base
     build:
       context: .
       dockerfile: docker-base/Dockerfile
 
   # App image: source code only (builds on top of base)
   app:
-    image: condenseit:app
+    image: docker.cnb.cool/fjyaxax/condenseit:oc0616
     build:
       context: .
       dockerfile: Dockerfile
@@ -17,6 +17,7 @@ services:
         - type=local,src=/tmp/docker-cache
     depends_on:
       - base
+
     ports:
       - "8166:8899"
     env_file:
