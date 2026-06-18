@@ -425,7 +425,7 @@ class DigestPipeline:
                 ns = art.get("coverage_meta", {}).get("num_sources", 1)
                 pct = sum(1 for v in source_counts if v <= ns) / total * 100 if total else 0
                 art["coverage_meta"]["coverage_percentile"] = pct
-                if pct >= rel.coverage_percentile:
+                if pct >= rel.coverage_percentile and ns > 1:
                     raw = ns if not rel.coverage_use_log else (ns + 1 if ns == 0 else math.log(ns + 1))
                     boost = rel.coverage_weight * raw
                     art["preference_score"] = art.get("preference_score", 0) + boost
